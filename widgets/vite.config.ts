@@ -3,10 +3,16 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import compression from 'vite-plugin-compression';
 import { widgetDiscoveryPlugin } from './vite-plugin-widgets';
+import path from 'path';
 
 const isProd = process.env.NODE_ENV === 'production';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   plugins: [
     widgetDiscoveryPlugin(), // Auto-discovers widgets from src/**/index.{tsx,jsx}
     tailwindcss(),

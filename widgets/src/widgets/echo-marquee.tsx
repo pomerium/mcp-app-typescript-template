@@ -2,6 +2,8 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { EchoMarquee } from '../echo-marquee/EchoMarquee';
 import { useOpenAiGlobal } from '../hooks/use-openai-global';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import '../index.css';
 
 /**
@@ -76,15 +78,15 @@ function App() {
   return (
     <div
       style={containerStyle}
-      className={`min-h-screen p-6 ${theme === 'dark' ? 'dark bg-gray-900' : 'bg-gray-50'}`}
+      className={`min-h-screen p-6 bg-background ${theme === 'dark' ? 'dark' : ''}`}
     >
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-3xl font-bold text-foreground">
             Echo Marquee Widget
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-muted-foreground">
             Demonstrating ChatGPT widget APIs
           </p>
         </div>
@@ -93,67 +95,70 @@ function App() {
         <EchoMarquee message={message} />
 
         {/* Interactive controls */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            Widget APIs Demo
-          </h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Widget APIs Demo</CardTitle>
+            <CardDescription>Test the ChatGPT widget integration features</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* callTool demonstration */}
+            <div className="space-y-2">
+              <Button
+                onClick={handleCallEcho}
+                disabled={isLoading}
+                className="w-full"
+              >
+                {isLoading ? 'Calling...' : 'Call echo tool from UI'}
+              </Button>
 
-          {/* callTool demonstration */}
-          <div className="space-y-2">
-            <button
-              onClick={handleCallEcho}
-              disabled={isLoading}
-              className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-lg transition-colors"
-            >
-              {isLoading ? 'Calling...' : 'Call echo tool from UI'}
-            </button>
+              {callResult && (
+                <div className="p-3 bg-muted rounded-md border">
+                  <p className="text-sm text-foreground">
+                    {callResult}
+                  </p>
+                </div>
+              )}
+            </div>
 
-            {callResult && (
-              <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600">
-                <p className="text-sm text-gray-800 dark:text-gray-200">
-                  {callResult}
-                </p>
-              </div>
+            {/* requestDisplayMode demonstration */}
+            {displayMode !== 'fullscreen' && (
+              <Button
+                onClick={handleRequestFullscreen}
+                variant="secondary"
+                className="w-full"
+              >
+                View Fullscreen
+              </Button>
             )}
-          </div>
 
-          {/* requestDisplayMode demonstration */}
-          {displayMode !== 'fullscreen' && (
-            <button
-              onClick={handleRequestFullscreen}
-              className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
-            >
-              View Fullscreen
-            </button>
-          )}
-
-          {/* Status display */}
-          <div className="pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600 dark:text-gray-400">Display Mode:</span>
-              <span className="font-medium text-gray-900 dark:text-white">
-                {displayMode || 'inline'}
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600 dark:text-gray-400">Theme:</span>
-              <span className="font-medium text-gray-900 dark:text-white">
-                {theme || 'light'}
-              </span>
-            </div>
-            {maxHeight && (
+            {/* Status display */}
+            <div className="pt-4 border-t space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">Max Height:</span>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {maxHeight}px
+                <span className="text-muted-foreground">Display Mode:</span>
+                <span className="font-medium text-foreground">
+                  {displayMode || 'inline'}
                 </span>
               </div>
-            )}
-          </div>
-        </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Theme:</span>
+                <span className="font-medium text-foreground">
+                  {theme || 'light'}
+                </span>
+              </div>
+              {maxHeight && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Max Height:</span>
+                  <span className="font-medium text-foreground">
+                    {maxHeight}px
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Footer info */}
-        <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+        <div className="text-center text-sm text-muted-foreground">
           <p>Built with ChatGPT Apps SDK</p>
         </div>
       </div>

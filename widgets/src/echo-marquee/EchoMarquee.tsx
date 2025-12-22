@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import './styles.css';
 
 export interface EchoMarqueeProps {
   /**
@@ -39,11 +38,23 @@ export function EchoMarquee({ message, speed = 50 }: EchoMarqueeProps) {
   const displayMessage = `${message} • ${message} • ${message} • `;
 
   return (
-    <div className="marquee-container" role="region" aria-label="Echo marquee">
-      <div className="marquee-wrapper">
-        <div ref={marqueeRef} className="marquee-content">
-          <span className="marquee-text">{displayMessage}</span>
-          <span className="marquee-text" aria-hidden="true">
+    <div
+      className="w-full overflow-hidden rounded-lg border shadow-sm bg-card"
+      role="region"
+      aria-label="Echo marquee"
+    >
+      <div className="relative w-full py-4">
+        <div
+          ref={marqueeRef}
+          className="flex whitespace-nowrap hover:[animation-play-state:paused]"
+          style={{
+            animation: 'marquee-scroll var(--marquee-duration, 20s) linear infinite',
+          }}
+        >
+          <span className="inline-block text-2xl font-bold px-8 text-primary">
+            {displayMessage}
+          </span>
+          <span className="inline-block text-2xl font-bold px-8 text-primary" aria-hidden="true">
             {displayMessage}
           </span>
         </div>
