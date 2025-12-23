@@ -27,15 +27,13 @@ export function EchoMarquee({ message, speed = 50 }: EchoMarqueeProps) {
   useEffect(() => {
     if (!marqueeRef.current) return;
 
-    // Calculate animation duration based on speed
-    const width = marqueeRef.current.scrollWidth / 2; // Divide by 2 because we duplicate the message
+    const width = marqueeRef.current.scrollWidth / 2;
     const duration = width / speed;
 
     marqueeRef.current.style.setProperty('--marquee-duration', `${duration}s`);
   }, [message, speed]);
 
-  // Duplicate message for seamless loop
-  const displayMessage = `${message} • ${message} • ${message} • `;
+  const displayMessage = `${message}`;
 
   return (
     <div
@@ -48,13 +46,17 @@ export function EchoMarquee({ message, speed = 50 }: EchoMarqueeProps) {
           ref={marqueeRef}
           className="flex whitespace-nowrap hover:[animation-play-state:paused]"
           style={{
-            animation: 'marquee-scroll var(--marquee-duration, 20s) linear infinite',
+            animation:
+              'marquee-scroll var(--marquee-duration, 20s) linear infinite',
           }}
         >
           <span className="inline-block text-2xl font-bold px-8 text-primary">
             {displayMessage}
           </span>
-          <span className="inline-block text-2xl font-bold px-8 text-primary" aria-hidden="true">
+          <span
+            className="inline-block text-2xl font-bold px-8 text-primary"
+            aria-hidden="true"
+          >
             {displayMessage}
           </span>
         </div>

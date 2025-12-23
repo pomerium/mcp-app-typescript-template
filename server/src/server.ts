@@ -14,33 +14,37 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
   isInitializeRequest,
   type CallToolRequest,
+  type CallToolResult,
   type ListToolsRequest,
   type ListResourcesRequest,
+  type ListResourceTemplatesRequest,
   type ReadResourceRequest,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { SessionManager } from './utils/session.js';
-import { EchoToolInputSchema, type EchoToolOutput, type WidgetDescriptor } from './types.js';
+import {
+  EchoToolInputSchema,
+  type EchoToolOutput,
+  type WidgetDescriptor,
+} from './types.js';
 
-// Load environment variables
 config();
 
-// Setup paths
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const ASSETS_DIR = path.resolve(ROOT_DIR, 'assets');
 
-// Configuration
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '8080', 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const SESSION_MAX_AGE = parseInt(process.env.SESSION_MAX_AGE || '3600000', 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const WIDGET_PORT = parseInt(process.env.WIDGET_PORT || '4444', 10);
 
-// Setup pino logger
 const logger = pino({
   level: LOG_LEVEL,
   transport:
@@ -56,17 +60,48 @@ const logger = pino({
       : undefined,
 });
 
-// Widget descriptor
 const ECHO_WIDGET: WidgetDescriptor = {
   id: 'echo-marquee',
   title: 'Echo Marquee',
-  uri: 'widget://echo-marquee',
+  uri: 'ui://echo-marquee',
 };
 
 /**
- * Read widget HTML from assets directory
+ * Read widget HTML - from Vite dev server in development, from assets in production
  */
-function readWidgetHtml(widgetId: string): string {
+async function readWidgetHtml(widgetId: string): Promise<string> {
+  if (NODE_ENV === 'development') {
+    try {
+      const url = `http://localhost:${WIDGET_PORT}/${widgetId}.html`;
+      logger.debug({ url }, 'Fetching widget HTML from Vite dev server');
+      const response = await fetch(url);
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error(
+          {
+            status: response.status,
+            statusText: response.statusText,
+            errorText,
+            url,
+          },
+          'Vite dev server returned error'
+        );
+        throw new Error(`Failed to fetch widget HTML: ${response.statusText}`);
+      }
+      const html = await response.text();
+      logger.debug(
+        { url, htmlLength: html.length },
+        'Successfully fetched widget HTML'
+      );
+      return html;
+    } catch (err) {
+      logger.warn(
+        { err, widgetId, widgetPort: WIDGET_PORT },
+        'Failed to fetch from Vite dev server, falling back to built assets'
+      );
+    }
+  }
+
   if (!fs.existsSync(ASSETS_DIR)) {
     throw new Error(
       `Widget assets not found. Expected directory ${ASSETS_DIR}. Run "npm run build:widgets" before starting the server.`
@@ -101,10 +136,9 @@ function createMcpServer(sessionId: string): Server {
 
   const sessionLogger = logger.child({ sessionId });
 
-  // Define echo tool
   const echoTool: Tool = {
     name: 'echo',
-    description: 'Echoes back the user\'s message in a scrolling marquee widget',
+    description: "Echoes back the user's message in a scrolling marquee widget",
     inputSchema: {
       type: 'object',
       properties: {
@@ -115,114 +149,151 @@ function createMcpServer(sessionId: string): Server {
       },
       required: ['message'],
     },
+    _meta: {
+      'openai/outputTemplate': ECHO_WIDGET.uri,
+      'openai/widgetAccessible': true,
+      'openai/resultCanProduceWidget': true,
+    },
   };
 
-  // List tools handler
-  server.setRequestHandler(ListToolsRequestSchema, async (_request: ListToolsRequest) => {
-    sessionLogger.debug('Listing tools');
-    return {
-      tools: [echoTool],
-    };
-  });
-
-  // List resources handler
-  server.setRequestHandler(ListResourcesRequestSchema, async (_request: ListResourcesRequest) => {
-    sessionLogger.debug('Listing resources');
-    return {
-      resources: [
-        {
-          uri: ECHO_WIDGET.uri,
-          name: ECHO_WIDGET.title,
-          description: 'Interactive scrolling marquee widget for displaying echoed messages',
-          mimeType: 'text/html+skybridge',
-        },
-      ],
-    };
-  });
-
-  // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
-    const { name, arguments: args } = request.params;
-
-    sessionLogger.info({ toolName: name, args }, 'Tool invoked');
-
-    if (name !== 'echo') {
-      const error = `Unknown tool: ${name}`;
-      sessionLogger.error({ toolName: name }, error);
-      throw new Error(error);
-    }
-
-    try {
-      // Validate input with Zod
-      const validatedInput = EchoToolInputSchema.parse(args || {});
-
-      // Create structured output
-      const output: EchoToolOutput = {
-        echoedMessage: validatedInput.message,
-        timestamp: new Date().toISOString(),
-      };
-
-      sessionLogger.info({ output }, 'Tool execution successful');
-
+  server.setRequestHandler(
+    ListToolsRequestSchema,
+    async (_request: ListToolsRequest) => {
+      sessionLogger.debug('Listing tools');
       return {
-        content: [
+        tools: [echoTool],
+      };
+    }
+  );
+
+  server.setRequestHandler(
+    ListResourcesRequestSchema,
+    async (_request: ListResourcesRequest) => {
+      sessionLogger.debug('Listing resources');
+      return {
+        resources: [
           {
-            type: 'text',
-            text: `Echoing: "${validatedInput.message}"`,
+            uri: ECHO_WIDGET.uri,
+            name: ECHO_WIDGET.title,
+            description:
+              'Interactive scrolling marquee widget for displaying echoed messages',
+            mimeType: 'text/html+skybridge',
           },
         ],
-        structuredContent: output,
-        _meta: {
-          outputTemplate: {
-            type: 'resource',
-            resource: {
-              uri: ECHO_WIDGET.uri,
+      };
+    }
+  );
+
+  server.setRequestHandler(
+    ListResourceTemplatesRequestSchema,
+    async (_request: ListResourceTemplatesRequest) => {
+      sessionLogger.debug('Listing resource templates');
+      return {
+        resourceTemplates: [
+          {
+            uriTemplate: ECHO_WIDGET.uri,
+            name: ECHO_WIDGET.title,
+            description:
+              'Interactive scrolling marquee widget for displaying echoed messages',
+            mimeType: 'text/html+skybridge',
+            _meta: {
+              'openai/outputTemplate': ECHO_WIDGET.uri,
+              'openai/widgetAccessible': true,
+              'openai/resultCanProduceWidget': true,
             },
           },
-        },
+        ],
       };
-    } catch (err) {
-      sessionLogger.error({ err, toolName: name }, 'Tool execution failed');
-      throw err;
     }
-  });
+  );
 
-  // Read resource handler - Critical for widget loading
-  server.setRequestHandler(ReadResourceRequestSchema, async (request: ReadResourceRequest) => {
-    const { uri } = request.params;
+  server.setRequestHandler(
+    CallToolRequestSchema,
+    async (request: CallToolRequest): Promise<CallToolResult> => {
+      const { name, arguments: args } = request.params;
 
-    sessionLogger.debug({ uri }, 'Reading resource');
+      sessionLogger.info({ toolName: name, args }, 'Tool invoked');
 
-    // Handle widget resources
-    if (uri.startsWith('widget://')) {
-      const widgetId = uri.replace('widget://', '');
+      if (name !== 'echo') {
+        const error = `Unknown tool: ${name}`;
+        sessionLogger.error({ toolName: name }, error);
+        throw new Error(error);
+      }
 
-      if (widgetId === ECHO_WIDGET.id) {
-        try {
-          const html = readWidgetHtml(widgetId);
+      try {
+        const validatedInput = EchoToolInputSchema.parse(args || {});
 
-          sessionLogger.info({ uri, widgetId }, 'Widget resource loaded');
+        const output = {
+          echoedMessage: validatedInput.message,
+          timestamp: new Date().toISOString(),
+        } satisfies EchoToolOutput;
 
-          return {
-            contents: [
-              {
-                uri,
-                mimeType: 'text/html+skybridge', // CRITICAL for ChatGPT widget runtime
-                text: html,
+        sessionLogger.info({ output }, 'Tool execution successful');
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Echoing: "${validatedInput.message}"`,
+            },
+          ],
+          structuredContent: output,
+          _meta: {
+            outputTemplate: {
+              type: 'resource',
+              resource: {
+                uri: ECHO_WIDGET.uri,
               },
-            ],
-          };
-        } catch (err) {
-          sessionLogger.error({ err, uri, widgetId }, 'Failed to load widget');
-          throw err;
-        }
+            },
+          },
+        };
+      } catch (err) {
+        sessionLogger.error({ err, toolName: name }, 'Tool execution failed');
+        throw err;
       }
     }
+  );
 
-    const error = `Unknown resource: ${uri}`;
-    sessionLogger.error({ uri }, error);
-    throw new Error(error);
-  });
+  server.setRequestHandler(
+    ReadResourceRequestSchema,
+    async (request: ReadResourceRequest) => {
+      const { uri } = request.params;
+
+      sessionLogger.debug({ uri }, 'Reading resource');
+
+      if (uri.startsWith('ui://')) {
+        const widgetId = uri.replace('ui://', '');
+
+        if (widgetId === ECHO_WIDGET.id) {
+          try {
+            const html = await readWidgetHtml(widgetId);
+
+            sessionLogger.info({ uri, widgetId }, 'Widget resource loaded');
+
+            return {
+              contents: [
+                {
+                  uri,
+                  mimeType: 'text/html+skybridge', // CRITICAL for ChatGPT widget runtime
+                  text: html,
+                },
+              ],
+            };
+          } catch (err) {
+            sessionLogger.error(
+              { err, uri, widgetId },
+              'Failed to load widget'
+            );
+            throw err;
+          }
+        }
+      }
+
+      const error = `Unknown resource: ${uri}`;
+      sessionLogger.error({ uri }, error);
+      throw new Error(error);
+    }
+  );
 
   return server;
 }
@@ -241,13 +312,10 @@ async function main() {
     'Starting ChatGPT App Template server'
   );
 
-  // Create Express app
   const app = express();
 
-  // Add pino HTTP logging middleware
   app.use(pinoHttp({ logger }));
 
-  // CORS middleware
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', CORS_ORIGIN);
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -261,13 +329,12 @@ async function main() {
     next();
   });
 
-  // Parse JSON bodies
   app.use(express.json());
 
-  // Session manager
+  app.use('/assets', express.static(ASSETS_DIR));
+
   const sessionManager = new SessionManager(logger);
 
-  // Health check endpoint
   app.get('/health', (_req, res) => {
     res.json({
       status: 'ok',
@@ -277,33 +344,31 @@ async function main() {
     });
   });
 
-  // Unified MCP endpoint for HttpStreamable transport (GET/POST/DELETE)
   app.all('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     logger.info({ method: req.method, sessionId, ip: req.ip }, 'MCP request');
 
     try {
-      let session = sessionId ? sessionManager.get(sessionId) : undefined;
+      const session = sessionId ? sessionManager.get(sessionId) : undefined;
 
-      // Handle initialization request (no session ID + POST with initialize message)
-      if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+      if (
+        !sessionId &&
+        req.method === 'POST' &&
+        isInitializeRequest(req.body)
+      ) {
         logger.info('Initializing new session');
 
-        // Create event store for resumability
         const eventStore = new InMemoryEventStore();
 
-        // Create transport with session ID generator
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => uuidv4(),
           eventStore,
           onsessioninitialized: (newSessionId) => {
             logger.info({ sessionId: newSessionId }, 'Session initialized');
-            // Session will be stored after transport is connected below
           },
         });
 
-        // Set up close handler to clean up session
         transport.onclose = () => {
           const sid = transport.sessionId;
           if (sid) {
@@ -312,16 +377,12 @@ async function main() {
           }
         };
 
-        // Create server and connect to transport BEFORE handling request
-        // This allows the transport to route responses through the connected server
-        const tempSessionId = 'initializing'; // Temporary ID until session is initialized
+        const tempSessionId = 'initializing';
         const server = createMcpServer(tempSessionId);
         await server.connect(transport);
 
-        // Handle the initialization request (this will trigger onsessioninitialized)
         await transport.handleRequest(req, res, req.body);
 
-        // Store the session after initialization with the actual session ID
         const actualSessionId = transport.sessionId;
         if (actualSessionId) {
           sessionManager.create(actualSessionId, server, transport);
@@ -330,13 +391,11 @@ async function main() {
         return;
       }
 
-      // Reuse existing session
       if (session) {
         await session.transport.handleRequest(req, res, req.body);
         return;
       }
 
-      // Invalid request - no session ID or not an initialization request
       logger.warn({ sessionId, method: req.method }, 'Invalid MCP request');
       res.status(400).json({
         jsonrpc: '2.0',
@@ -361,15 +420,12 @@ async function main() {
     }
   });
 
-  // Cleanup stale sessions periodically
   const cleanupInterval = setInterval(() => {
     sessionManager.cleanup(SESSION_MAX_AGE);
-  }, 60000); // Every minute
+  }, 60000);
 
-  // Create HTTP server
   const httpServer = createServer(app);
 
-  // Graceful shutdown
   const shutdown = async () => {
     logger.info('Shutting down server...');
 
@@ -387,7 +443,6 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  // Start listening
   httpServer.listen(PORT, () => {
     logger.info(
       {
@@ -400,7 +455,6 @@ async function main() {
   });
 }
 
-// Start server
 main().catch((err) => {
   logger.fatal({ err }, 'Failed to start server');
   process.exit(1);

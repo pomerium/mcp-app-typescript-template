@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { OpenAiGlobals } from '../types/openai.js';
+import type { OpenAiGlobals, ToolOutput } from '../types/openai.js';
 
 const SET_GLOBALS_EVENT_TYPE = 'openai:set_globals';
 
@@ -14,15 +14,25 @@ interface SetGlobalsEvent extends CustomEvent {
  *
  * @example
  * const theme = useOpenAiGlobal('theme');
- * const toolOutput = useOpenAiGlobal('toolOutput');
+ * const toolOutput = useOpenAiGlobal<MyToolOutput>('toolOutput');
  * const displayMode = useOpenAiGlobal('displayMode');
  */
+// Overload for toolOutput with custom type
+export function useOpenAiGlobal<TToolOutput extends ToolOutput>(
+  key: 'toolOutput'
+): TToolOutput | null;
+
+// Overload for all other keys
+export function useOpenAiGlobal<K extends Exclude<keyof OpenAiGlobals, 'toolOutput'>>(
+  key: K
+): OpenAiGlobals[K] | null;
+
+// Implementation
 export function useOpenAiGlobal<K extends keyof OpenAiGlobals>(
   key: K
 ): OpenAiGlobals[K] | null {
   return useSyncExternalStore(
     (onChange) => {
-      // Subscribe to SET_GLOBALS_EVENT_TYPE changes from ChatGPT host
       const handleSetGlobal = (event: Event) => {
         const customEvent = event as SetGlobalsEvent;
         const value = customEvent.detail.globals[key];
@@ -38,7 +48,6 @@ export function useOpenAiGlobal<K extends keyof OpenAiGlobals>(
         window.removeEventListener(SET_GLOBALS_EVENT_TYPE, handleSetGlobal);
       };
     },
-    // getSnapshot - return current value
     () => {
       return window.openai?.[key] ?? null;
     },

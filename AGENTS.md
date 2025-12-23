@@ -15,14 +15,18 @@ npm workspaces split the codebase: `server/` is the MCP backend, `widgets/` hous
 ## Development Commands
 
 ### Primary Development Workflow
+
 ```bash
 # Start server in watch mode
 npm run dev:server
 
-# Build widgets (run separately after server is running)
+# Serve widgets via Vite dev server on port 4444
+npm run dev:widgets
+
+# Alternative: Build widgets (one-time build)
 npm run build:widgets
 
-# Test with MCP Inspector (requires server + built widgets)
+# Test with MCP Inspector (requires server + widgets)
 npm run inspect
 
 # Run Storybook for widget development
@@ -30,6 +34,7 @@ npm run storybook
 ```
 
 ### Building & Testing
+
 ```bash
 # Full production build (widgets then server)
 npm run build
@@ -46,6 +51,7 @@ npm run type-check
 ```
 
 ### Code Quality
+
 ```bash
 # Lint TypeScript files
 npm run lint
@@ -60,6 +66,7 @@ npm run format:check
 ## Key Architectural Patterns
 
 ### Base `Server` Class Usage
+
 This template uses the **base `Server` class** from `@modelcontextprotocol/sdk/server/index.js`, NOT the higher-level `McpServer` class. This is critical because:
 
 - ChatGPT apps require the `_meta` field to reference widgets via `outputTemplate`
@@ -76,13 +83,15 @@ Widgets MUST be registered with the exact MIME type `text/html+skybridge` for Ch
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
 
-  if (uri.startsWith('widget://')) {
+  if (uri.startsWith('ui://')) {
     return {
-      contents: [{
-        uri,
-        mimeType: 'text/html+skybridge', // CRITICAL - must be exact
-        text: html
-      }]
+      contents: [
+        {
+          uri,
+          mimeType: 'text/html+skybridge', // CRITICAL - must be exact
+          text: html,
+        },
+      ],
     };
   }
 });
@@ -102,7 +111,7 @@ All tool responses follow this pattern:
   _meta: {
     outputTemplate: {
       type: 'resource',
-      resource: { uri: 'widget://widget-name' }
+      resource: { uri: 'ui://widget-name' }
     }
   }
 }
@@ -134,6 +143,7 @@ Vite auto-discovers and builds widgets via a custom plugin with **automatic moun
 - Widget bundles in `assets/` are generated artifacts; never edit them manually
 
 **Widget folder structure:**
+
 ```
 widgets/src/
   ├── widgets/              # Widget entry points (auto-discovered)
@@ -149,7 +159,9 @@ widgets/src/
 ```
 
 **To add a new widget:**
+
 1. Create `widgets/src/widgets/my-widget.tsx`:
+
 ```tsx
 import { useOpenAiGlobal } from '../hooks/use-openai-global';
 
@@ -158,9 +170,10 @@ export default function MyWidget() {
   return <div>{JSON.stringify(toolOutput)}</div>;
 }
 ```
+
 2. Add supporting components in `widgets/src/my-widget/` if needed
 3. Widget automatically discovered and built in dev mode
-4. Widget will be available as `widget://my-widget`
+4. Widget will be available as `ui://my-widget`
 
 **No mounting code needed** - the build system generates virtual entry modules that handle mounting:
 
@@ -169,14 +182,16 @@ export default function MyWidget() {
 Widgets use two key custom hooks:
 
 **`useOpenAiGlobal(key)`** - Read reactive values from ChatGPT host:
+
 ```typescript
-const toolOutput = useOpenAiGlobal('toolOutput');  // Tool's structuredContent
-const theme = useOpenAiGlobal('theme');            // 'light' | 'dark'
+const toolOutput = useOpenAiGlobal('toolOutput'); // Tool's structuredContent
+const theme = useOpenAiGlobal('theme'); // 'light' | 'dark'
 const displayMode = useOpenAiGlobal('displayMode'); // 'inline' | 'pip' | 'fullscreen'
-const safeArea = useOpenAiGlobal('safeArea');      // Insets for layout
+const safeArea = useOpenAiGlobal('safeArea'); // Insets for layout
 ```
 
 **`useWidgetState(initialState)`** - Persistent state synchronized with host:
+
 ```typescript
 const [state, setState] = useWidgetState({ count: 0 });
 // State persists per message and syncs automatically
@@ -198,12 +213,14 @@ This ensures type safety and runtime validation.
 ## File Organization
 
 ### Server Structure
+
 - `server/src/server.ts` - Main server, tool registration, HttpStreamable transport setup
 - `server/src/types.ts` - Zod schemas and TypeScript interfaces
 - `server/src/utils/session.ts` - SessionManager class for MCP session lifecycle
 - `server/tests/*.test.ts` - Vitest specs for tools and validation
 
 ### Widget Structure
+
 - `widgets/src/widgets/{widget-name}.tsx` - Widget entry point (auto-discovered, just exports component)
 - `widgets/src/{widget-name}/{Component}.tsx` - Supporting components for the widget
 - `widgets/src/{widget-name}/styles.css` - Component-specific styles
@@ -214,6 +231,7 @@ This ensures type safety and runtime validation.
 - `widgets/vite-plugin-widgets.ts` - Custom Vite plugin for auto-discovery and mounting
 
 ### Generated Assets
+
 - `assets/` - Built widget bundles (gitignored)
 - Files include both hashed versions (`echo-marquee-{hash}.js`) and unhashed (`echo-marquee.js`)
 - HTML templates reference the hashed assets for cache busting
@@ -234,6 +252,7 @@ This ensures type safety and runtime validation.
 ### Testing ChatGPT Integration
 
 #### Local Testing with MCP Inspector
+
 ```bash
 # 1. Start server (terminal 1)
 npm run dev:server
@@ -248,6 +267,7 @@ npm run inspect
 The inspector allows testing tool invocations and verifying widget resources without deploying.
 
 #### Connecting from ChatGPT
+
 1. Deploy server or use tunnel service (ngrok, cloudflare tunnel, etc.)
 2. In ChatGPT: Settings → Connectors → Add Connector
 3. Enter server URL: `https://your-domain.com/mcp`
@@ -259,7 +279,8 @@ Key environment variables (create `.env` from `.env.example`):
 
 ```bash
 NODE_ENV=development           # Controls logging format
-PORT=3000                      # Server port
+PORT=8080                      # Server port
+WIDGET_PORT=4444               # Widget dev server port (default: 4444)
 LOG_LEVEL=info                 # Pino log level: fatal, error, warn, info, debug, trace
 SESSION_MAX_AGE=3600000        # Session cleanup threshold (1 hour in ms)
 CORS_ORIGIN=*                  # CORS origin (set to domain in production)
@@ -268,27 +289,32 @@ BUILD_CONCURRENCY=             # Parallel widget builds (default: CPU count / 2)
 ```
 
 Requirements:
+
 - Node.js 22+ with npm 10+ (consider `corepack enable` to pin versions in CI)
 - When tunneling or redeploying, check `/health` and rerun `npm run inspect` to ensure the MCP manifest is current
 
 ## Common Troubleshooting
 
 **Widget not loading in ChatGPT:**
+
 - Verify `text/html+skybridge` MIME type in resource handler
 - Check `assets/` directory exists and contains built files
 - Rebuild widgets: `npm run build:widgets`
 - Restart server and refresh connector in ChatGPT settings
 
 **"Widget assets not found" error:**
+
 - Run `npm run build:widgets` before starting the server
 - Check that `assets/` directory was created
 - Verify widget entry points exist in `widgets/src/**/index.{tsx,jsx}`
 
 **Port already in use:**
+
 - Change `PORT` in `.env` file
-- Or kill existing process: `lsof -ti:3000 | xargs kill`
+- Or kill existing process: `lsof -ti:8080 | xargs kill`
 
 **Type errors:**
+
 - Run `npm run type-check` to see all TypeScript errors across workspaces
 - Both `server/` and `widgets/` have separate `tsconfig.json` files
 
@@ -301,12 +327,14 @@ Requirements:
 ## Production Deployment
 
 ### Docker
+
 ```bash
 docker build -f docker/Dockerfile -t chatgpt-app:latest .
 docker-compose -f docker/docker-compose.yml up -d
 ```
 
 ### Production Checklist
+
 - Set `NODE_ENV=production`
 - Configure `CORS_ORIGIN` to your domain (not `*`)
 - Use `LOG_LEVEL=warn` or `error` for production

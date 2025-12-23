@@ -6,6 +6,7 @@ import { widgetDiscoveryPlugin } from './vite-plugin-widgets';
 import path from 'path';
 
 const isProd = process.env.NODE_ENV === 'production';
+const widgetPort = Number(process.env.WIDGET_PORT || 4444);
 
 export default defineConfig({
   resolve: {
@@ -14,10 +15,11 @@ export default defineConfig({
     },
   },
   plugins: [
-    widgetDiscoveryPlugin(), // Auto-discovers widgets from src/**/index.{tsx,jsx}
+    react({
+      jsxRuntime: 'automatic',
+    }),
+    widgetDiscoveryPlugin(),
     tailwindcss(),
-    react(),
-    // Production compression only
     ...(isProd
       ? [
           compression({
@@ -31,12 +33,21 @@ export default defineConfig({
         ]
       : []),
   ],
+  server: {
+    port: widgetPort,
+    strictPort: true,
+    cors: true,
+    fs: {
+      allow: ['..'],
+    },
+  },
+  publicDir: '../assets',
   build: {
     target: 'es2023',
     outDir: '../assets',
     emptyOutDir: false,
     sourcemap: true,
-    minify: isProd ? 'esbuild' : false, // Use esbuild instead of terser
+    minify: isProd ? 'esbuild' : false,
     ...(isProd
       ? {
           terserOptions: {
@@ -50,7 +61,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         format: 'es',
-        manualChunks: undefined, // Single bundle per widget
+        manualChunks: undefined,
       },
     },
     chunkSizeWarningLimit: 500,

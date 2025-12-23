@@ -1,5 +1,5 @@
 {
-  "name": "chatgpt-app-template",
+  "name": "chatgpt-app-typescript-template",
   "version": "1.0.0",
   "description": "Minimal, production-ready ChatGPT app template using OpenAI Apps SDK",
   "private": true,
@@ -11,8 +11,9 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:widgets\"",
     "dev:server": "npm run dev --workspace=server",
     "dev:widgets": "npm run dev --workspace=widgets",
+    "serve:widgets": "npm run serve --workspace=widgets",
     "storybook": "npm run storybook --workspace=widgets",
-    "inspect": "npx @modelcontextprotocol/inspector http://localhost:3000/mcp",
+    "inspect": "npx @modelcontextprotocol/inspector http://localhost:8080/mcp",
     "build": "npm run build:widgets && npm run build:server",
     "build:server": "npm run build --workspace=server",
     "build:widgets": "npm run build --workspace=widgets",
