@@ -17,7 +17,6 @@ services:
       NODE_ENV: production
       PORT: 8080
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      SESSION_MAX_AGE: ${SESSION_MAX_AGE:-3600000}
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
 
     volumes:
