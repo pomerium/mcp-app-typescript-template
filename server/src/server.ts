@@ -448,12 +448,7 @@ async function main() {
   app.use('/assets', express.static(ASSETS_DIR));
 
   app.get('/health', (_req, res) => {
-    res.json({
-      status: 'ok',
-      version: '1.0.0',
-      stateless: true,
-      timestamp: new Date().toISOString(),
-    });
+    res.json({ status: 'ok' });
   });
 
   const handler = createMcpHandler(({ era }) => createMcpServer(era), {

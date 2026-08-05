@@ -754,10 +754,10 @@ return {
 
 ### MCP Server Endpoints
 
-| Endpoint                       | Method | Description                                           |
-| ------------------------------ | ------ | ----------------------------------------------------- |
-| `/health` | GET | Health check (returns status, version, and `stateless: true`) |
-| `/mcp` | POST | Stateless MCP request endpoint |
+| Endpoint  | Method | Description                    |
+| --------- | ------ | ------------------------------ |
+| `/health` | GET    | Health check                   |
+| `/mcp`    | POST   | Stateless MCP request endpoint |
 
 ### Echo Tool Schema
 
