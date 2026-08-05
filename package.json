@@ -1,5 +1,5 @@
 {
-  "name": "chatgpt-app-typescript-template",
+  "name": "mcp-app-typescript-template",
   "version": "1.0.0",
   "description": "Minimal, production-ready MCP Apps template with React widgets",
   "type": "module",
