@@ -3,7 +3,7 @@ name: create-mcp-tool
 description: Add a plain (text-only) or UI-enhanced MCP tool to this template's server. Use when asked to "add a tool", "add an MCP tool", "create a new tool", "add a server-side tool without a widget", "add a tool with a UI", "add a tool with a widget", or "create a tool and a widget".
 metadata:
   author: nickytonline
-  version: "1.0.0"
+  version: '1.0.0'
 ---
 
 # Add an MCP Tool to This Template
@@ -20,12 +20,12 @@ Use WebFetch to retrieve that skill now. The steps below cover what is **differe
 
 ## How This Template Differs from the Generic SDK Examples
 
-| Generic ext-apps approach | This template |
-|---|---|
-| Edit `server.ts` directly | Edit `server/src/server.ts` inside the `createMcpServer()` function |
-| Inline Zod schemas in the tool handler | Define schemas in `server/src/types.ts`, import into `server.ts` |
-| `vite-plugin-singlefile` for UI | Widget build system in `widgets/` — see the `add-widget` skill if you want a UI |
-| Single-file server | `SessionManager` in `server/src/utils/session.ts` handles per-session isolation |
+| Generic ext-apps approach              | This template                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------- |
+| Edit `server.ts` directly              | Edit `server/src/server.ts` inside the `createMcpServer()` function             |
+| Inline Zod schemas in the tool handler | Define schemas in `server/src/types.ts`, import into `server.ts`                |
+| `vite-plugin-singlefile` for UI        | Widget build system in `widgets/` — see the `add-widget` skill if you want a UI |
+| Single-file server                     | `SessionManager` in `server/src/utils/session.ts` handles per-session isolation |
 
 All tools must be registered inside `createMcpServer()` in `server/src/server.ts`. This function is called once per new MCP session, so each session gets its own isolated `McpServer` instance.
 
@@ -72,7 +72,12 @@ registerAppTool(
     const result = MyToolInputSchema.safeParse(args);
     if (!result.success) {
       return {
-        content: [{ type: 'text', text: `Error: ${result.error.issues.map(e => e.message).join(', ')}` }],
+        content: [
+          {
+            type: 'text',
+            text: `Error: ${result.error.issues.map((e) => e.message).join(', ')}`,
+          },
+        ],
         isError: true,
       };
     }
@@ -109,7 +114,7 @@ registerAppTool(
     // ... validate, compute output ...
     return {
       content: [{ type: 'text', text: 'Plain text fallback for non-UI hosts' }],
-      structuredContent: output,   // passed to the widget via App.ontoolresult
+      structuredContent: output, // passed to the widget via App.ontoolresult
     };
   }
 );

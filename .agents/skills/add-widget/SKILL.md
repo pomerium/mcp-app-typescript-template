@@ -3,7 +3,7 @@ name: add-widget
 description: Add a new widget (React UI + MCP tool) to this template. Use when asked to "add a widget", "add a new tool with UI", "create a new widget", "scaffold a widget", or "build a new MCP App feature".
 metadata:
   author: nickytonline
-  version: "1.0.0"
+  version: '1.0.0'
 ---
 
 # Add a Widget to This Template
@@ -20,13 +20,13 @@ Use WebFetch to retrieve that skill now. The steps below describe what is **diff
 
 ## How This Template Differs from the Generic SDK Examples
 
-| Generic ext-apps approach | This template |
-|---|---|
-| `vite-plugin-singlefile` → single HTML file | Custom `vite-plugin-widgets` → auto-discovery, content hashing, parallel builds |
-| One `vite.config.ts` per project | `widgets/vite.config.ts` handles all widgets automatically |
-| `tsx server.ts` to run | `npm run dev` starts server + widget dev server together |
+| Generic ext-apps approach                       | This template                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| `vite-plugin-singlefile` → single HTML file     | Custom `vite-plugin-widgets` → auto-discovery, content hashing, parallel builds |
+| One `vite.config.ts` per project                | `widgets/vite.config.ts` handles all widgets automatically                      |
+| `tsx server.ts` to run                          | `npm run dev` starts server + widget dev server together                        |
 | Manual resource registration with `fs.readFile` | `readWidgetHtml()` in `server/src/server.ts` handles dev/prod/CDN automatically |
-| No Storybook | Storybook configured — add a `.stories.tsx` for your component |
+| No Storybook                                    | Storybook configured — add a `.stories.tsx` for your component                  |
 
 **Never** edit files in `assets/` directly — they are generated artifacts.
 
@@ -61,7 +61,7 @@ Edit `server/src/server.ts`. Follow the existing `ECHO_WIDGET` / `registerAppToo
 
 ```typescript
 const MY_WIDGET: WidgetDescriptor = {
-  id: 'my-widget',      // must match the widget filename without .tsx
+  id: 'my-widget', // must match the widget filename without .tsx
   title: 'My Widget',
   uri: 'ui://my-widget',
 };
