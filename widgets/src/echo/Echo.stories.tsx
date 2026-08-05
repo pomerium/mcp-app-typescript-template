@@ -49,7 +49,10 @@ export const ShortMessage: Story = {
   render: () => (
     <Echo
       app={createMockApp<EchoToolOutput>({
-        toolOutput: { echoedMessage: 'Hi!', timestamp: new Date().toISOString() },
+        toolOutput: {
+          echoedMessage: 'Hi!',
+          timestamp: new Date().toISOString(),
+        },
       })}
     />
   ),

@@ -41,8 +41,6 @@ describe('Echo', () => {
     expect(
       await screen.findByRole('button', { name: /call echo tool/i })
     ).toBeTruthy();
-    expect(
-      screen.getByRole('button', { name: /^clear$/i })
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^clear$/i })).toBeTruthy();
   });
 });

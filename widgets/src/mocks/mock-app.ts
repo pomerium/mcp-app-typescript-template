@@ -16,13 +16,12 @@ export function createMockApp<TStructured>(
   setHostContext: (next: HostContext) => void;
 } {
   let toolOutput: TStructured | null = options.toolOutput ?? null;
-  let hostContext: HostContext =
-    options.hostContext ?? {
-      theme: 'light',
-      displayMode: 'inline',
-      safeAreaInsets: { top: 0, bottom: 0, left: 0, right: 0 },
-      containerDimensions: { maxHeight: 600 },
-    };
+  let hostContext: HostContext = options.hostContext ?? {
+    theme: 'light',
+    displayMode: 'inline',
+    safeAreaInsets: { top: 0, bottom: 0, left: 0, right: 0 },
+    containerDimensions: { maxHeight: 600 },
+  };
 
   const mock = {
     connect: async () => {
@@ -46,7 +45,9 @@ export function createMockApp<TStructured>(
         ],
         structuredContent: toolOutput ?? undefined,
       })),
-    requestDisplayMode: async (params: { mode: HostContext['displayMode'] }) => ({
+    requestDisplayMode: async (params: {
+      mode: HostContext['displayMode'];
+    }) => ({
       mode: params.mode!,
     }),
     openLink: async () => ({}),

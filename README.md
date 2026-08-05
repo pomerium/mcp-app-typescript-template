@@ -387,7 +387,8 @@ function MyWidget() {
 
   useEffect(() => {
     const app = new App({ name: 'MyWidget', version: '1.0.0' });
-    app.ontoolresult = (result) => setToolOutput(result.structuredContent ?? null);
+    app.ontoolresult = (result) =>
+      setToolOutput(result.structuredContent ?? null);
     app.onhostcontextchanged = (context) => setTheme(context?.theme ?? 'light');
     app.connect();
   }, []);
@@ -459,7 +460,8 @@ function MyWidget() {
 
   useEffect(() => {
     const app = new App({ name: 'MyWidget', version: '1.0.0' });
-    app.ontoolresult = (result) => setToolOutput(result.structuredContent ?? null);
+    app.ontoolresult = (result) =>
+      setToolOutput(result.structuredContent ?? null);
     app.connect();
   }, []);
   return <div>Widget content</div>;
@@ -609,7 +611,10 @@ return {
       _meta: {
         ui: {
           csp: {
-            resourceDomains: ['https://cdn.example.com', 'https://api.example.com'],
+            resourceDomains: [
+              'https://cdn.example.com',
+              'https://api.example.com',
+            ],
             connectDomains: ['https://api.example.com'], // for fetch/XHR
           },
         },
@@ -666,7 +671,8 @@ function MyWidget() {
 
   useEffect(() => {
     const app = new App({ name: 'MyWidget', version: '1.0.0' });
-    app.ontoolresult = (result) => setToolOutput(result.structuredContent ?? null);
+    app.ontoolresult = (result) =>
+      setToolOutput(result.structuredContent ?? null);
     app.onhostcontextchanged = (context) => {
       setTheme(context?.theme ?? 'light');
       setSafeAreaInsets({

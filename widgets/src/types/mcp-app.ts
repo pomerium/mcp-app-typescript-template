@@ -48,10 +48,7 @@ export interface AppLike<TStructured = unknown> {
     isError?: boolean;
     [key: string]: unknown;
   }>;
-  sendMessage: (params: {
-    role: 'user';
-    content: ContentBlock[];
-  }) => Promise<{
+  sendMessage: (params: { role: 'user'; content: ContentBlock[] }) => Promise<{
     isError?: boolean;
     [key: string]: unknown;
   }>;
