@@ -58,7 +58,7 @@ graph TD
 ### Installation & Setup
 
 ```bash
-git clone https://github.com/pomerium/chatgpt-app-typescript-template your-chatgpt-app
+git clone https://github.com/pomerium/mcp-app-typescript-template your-chatgpt-app
 cd your-chatgpt-app
 npm install
 npm run dev
@@ -76,15 +76,15 @@ You should see output indicating both servers are running successfully:
 ```
 ❯ npm run dev
 
-> chatgpt-app-typescript-template@1.0.0 dev
+> mcp-app-typescript-template@1.0.0 dev
 > concurrently "npm run dev:server" "npm run dev:widgets"
 
 [1]
-[1] > chatgpt-app-typescript-template@1.0.0 dev:widgets
+[1] > mcp-app-typescript-template@1.0.0 dev:widgets
 [1] > npm run dev --workspace=widgets
 [1]
 [0]
-[0] > chatgpt-app-typescript-template@1.0.0 dev:server
+[0] > mcp-app-typescript-template@1.0.0 dev:server
 [0] > npm run dev --workspace=server
 [0]
 [1]
@@ -108,7 +108,7 @@ You should see output indicating both servers are running successfully:
 [0]     port: 8080
 [0]     nodeEnv: "development"
 [0]     logLevel: "info"
-[0]     assetsDir: "/Users/nicktaylor/dev/oss/chatgpt-app-typescript-template/assets"
+[0]     assetsDir: "/Users/nicktaylor/dev/oss/mcp-app-typescript-template/assets"
 [0] [12:45:12] INFO: Server started successfully
 [0]     port: 8080
 [0]     mcpEndpoint: "http://localhost:8080/mcp"
