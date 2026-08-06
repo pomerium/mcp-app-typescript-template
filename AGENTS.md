@@ -10,7 +10,7 @@ This is an MCP Apps template built with the MCP Apps spec and Model Context Prot
 - **MCP App Views**: Interactive components rendered in host iframes that communicate via the MCP Apps `App` API
 - **Widget Build System**: Custom Vite-based parallel build pipeline with content hashing and auto-discovery
 
-npm workspaces split the codebase: `server/` is the MCP backend, `widgets/` houses React widgets, and shared tooling sits in `scripts/`.
+npm workspaces split the codebase: `server/` is the MCP backend and `widgets/` houses React widgets.
 
 ## Development Commands
 

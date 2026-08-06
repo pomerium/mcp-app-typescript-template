@@ -26,7 +26,6 @@ RUN npm ci --prefer-offline
 COPY tsconfig.base.json ./
 COPY server/ ./server/
 COPY widgets/ ./widgets/
-COPY scripts/ ./scripts/
 
 # Build widgets first (generates assets/ directory)
 RUN npm run build:widgets
