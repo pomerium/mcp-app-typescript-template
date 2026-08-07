@@ -54,11 +54,9 @@ export function createMockApp<TStructured>(
     sendMessage: async () => ({}),
     updateModelContext: async () => ({}),
     ontoolresult: undefined as
-      | ((result: ToolResultPayload<TStructured>) => void)
-      | undefined,
+      ((result: ToolResultPayload<TStructured>) => void) | undefined,
     onhostcontextchanged: undefined as
-      | ((context: HostContext) => void)
-      | undefined,
+      ((context: HostContext) => void) | undefined,
     emitToolResult: (next: TStructured) => {
       toolOutput = next;
       mock.ontoolresult?.({ structuredContent: next, content: [] });

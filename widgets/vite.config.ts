@@ -2,13 +2,13 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import compression from 'vite-plugin-compression';
-import { widgetDiscoveryPlugin } from './vite-plugin-widgets';
+import { widgetDiscoveryPlugin } from './vite-plugin-widgets.ts';
 import path from 'path';
 
 export default defineConfig(({ mode }) => {
   // loadEnv with '' prefix loads all .env vars (not just VITE_-prefixed ones).
   // Inject into process.env so vite-plugin-widgets can read BASE_URL at build time.
-  const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
+  const env = loadEnv(mode, path.resolve(import.meta.dirname, '..'), '');
   if (env.BASE_URL && !process.env.BASE_URL) {
     process.env.BASE_URL = env.BASE_URL;
   }
@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
     envDir: '..', // load .env from repo root for import.meta.env in client code
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
+        '@': path.resolve(import.meta.dirname, './src'),
       },
     },
     plugins: [
@@ -58,29 +58,27 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: false,
       sourcemap: true,
       ...(inlineAssets ? { assetsInlineLimit: 100 * 1024 } : {}), // 100KB in inline mode to embed local images as data URIs
-      minify: isProd ? 'esbuild' : false,
-      ...(isProd
-        ? {
-            terserOptions: {
-              compress: {
-                drop_console: true,
-                drop_debugger: true,
-              },
-            },
-          }
-        : {}),
-      rollupOptions: {
+      // Vite 8 uses the Oxc minifier by default (`minify: true`); the old
+      // 'esbuild' string now requires esbuild to be installed as a separate
+      // dependency, so we use the built-in minifier instead.
+      minify: isProd,
+      rolldownOptions: {
         output: {
           format: 'es',
-          manualChunks: undefined,
+          // Strip console/debugger calls in production. This replaces the old
+          // terserOptions block, which never actually took effect because
+          // minify wasn't set to 'terser'.
+          ...(isProd
+            ? {
+                minify: {
+                  compress: { dropConsole: true, dropDebugger: true },
+                  mangle: true,
+                },
+              }
+            : {}),
         },
       },
       chunkSizeWarningLimit: 500,
-    },
-    esbuild: {
-      jsx: 'automatic',
-      jsxImportSource: 'react',
-      target: 'es2023',
     },
   };
 });
