@@ -52,13 +52,13 @@ export function widgetDiscoveryPlugin(): Plugin {
 
       return {
         build: {
-          rollupOptions: {
+          rolldownOptions: {
             input,
             output: {
               entryFileNames: '[name].js',
               chunkFileNames: '[name]-[hash].js',
               assetFileNames: (assetInfo) => {
-                if (assetInfo.name?.endsWith('.css')) {
+                if (assetInfo.names.some((name) => name.endsWith('.css'))) {
                   return '[name].css';
                 }
                 return '[name]-[hash][extname]';
