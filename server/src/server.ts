@@ -6,7 +6,11 @@ import express from 'express';
 import { config } from 'dotenv';
 import pino from 'pino';
 import pinoHttp from 'pino-http';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import {
+  createMcpHandler,
+  McpServer,
+  type ProtocolEra,
+} from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import {
   registerAppResource,
@@ -226,7 +230,7 @@ function inlineWidgetAssets(html: string): string {
 /**
  * Create an MCP server instance with echo tool
  */
-function createMcpServer(protocolEra: 'modern' | 'legacy'): McpServer {
+function createMcpServer(protocolEra: ProtocolEra): McpServer {
   const server = new McpServer({
     name: 'mcp-app-template',
     version: '1.0.0',
