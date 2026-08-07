@@ -58,8 +58,8 @@ graph TD
 ### Installation & Setup
 
 ```bash
-git clone https://github.com/pomerium/mcp-app-typescript-template your-chatgpt-app
-cd your-chatgpt-app
+git clone https://github.com/pomerium/mcp-app-typescript-template your-mcp-app
+cd your-mcp-app
 npm install
 npm run dev
 ```
@@ -88,11 +88,11 @@ You should see output indicating both servers are running successfully:
 [0] > npm run dev --workspace=server
 [0]
 [1]
-[1] > chatgpt-app-widgets@1.0.0 dev
+[1] > mcp-app-widgets@1.0.0 dev
 [1] > vite
 [1]
 [0]
-[0] > chatgpt-app-server@1.0.0 dev
+[0] > mcp-app-server@1.0.0 dev
 [0] > tsx watch src/server.ts
 [0]
 [1]
@@ -289,7 +289,7 @@ When deploying to production:
 ## Project Structure
 
 ```
-chatgpt-app-template/
+mcp-app-template/
 ├── server/                  # MCP server
 │   ├── src/
 │   │   ├── server.ts       # Main server with echo tool
@@ -894,7 +894,7 @@ The server will:
 
 ```bash
 # Build image
-docker build -f docker/Dockerfile -t chatgpt-app:latest .
+docker build -f docker/Dockerfile -t mcp-app:latest .
 
 # Run with docker-compose
 docker-compose -f docker/docker-compose.yml up -d

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import Echo from './Echo.js';
-import type { EchoToolOutput } from 'chatgpt-app-server/types';
+import type { EchoToolOutput } from 'mcp-app-server/types';
 import { createMockApp } from '../mocks/mock-app';
 
 const meta = {

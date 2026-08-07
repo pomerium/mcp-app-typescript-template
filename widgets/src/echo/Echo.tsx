@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { App } from '@modelcontextprotocol/ext-apps';
 import type { TextContent } from '@modelcontextprotocol/sdk/types.js';
 import { Button } from '@/components/ui/button';
-import type { EchoToolOutput } from 'chatgpt-app-server/types';
+import type { EchoToolOutput } from 'mcp-app-server/types';
 import {
   BrainCircuit,
   ExternalLink,
@@ -272,7 +272,7 @@ export default function Echo({ app }: { app?: AppLike<EchoToolOutput> }) {
           Echo
         </h1>
         <p className="text-base dark:text-zinc-400 text-zinc-600">
-          A demonstration of ChatGPT widget capabilities
+          A demonstration of MCP Apps widget capabilities
         </p>
 
         <section className="space-y-2">

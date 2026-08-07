@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "chatgpt-app-template": {
+    "mcp-app-template": {
       "type": "streamable-http",
       "url": "http://localhost:8080/mcp"
     }

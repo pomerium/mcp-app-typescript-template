@@ -1,5 +1,5 @@
 {
-  "name": "chatgpt-app-server",
+  "name": "mcp-app-server",
   "version": "1.0.0",
   "description": "MCP server for MCP Apps template",
   "type": "module",
