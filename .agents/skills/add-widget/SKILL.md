@@ -116,7 +116,7 @@ Key imports:
 ```typescript
 import { App } from '@modelcontextprotocol/ext-apps';
 import type { AppLike, HostContext, ToolResultPayload } from '../types/mcp-app';
-import type { MyToolOutput } from 'chatgpt-app-server/types';
+import type { MyToolOutput } from 'mcp-app-server/types';
 ```
 
 ---
@@ -129,7 +129,7 @@ Create `widgets/src/my-widget/MyWidget.stories.tsx`. Use `createMockApp()` from 
 import type { Meta, StoryObj } from '@storybook/react';
 import { createMockApp } from '../mocks/mock-app';
 import MyWidget from './MyWidget';
-import type { MyToolOutput } from 'chatgpt-app-server/types';
+import type { MyToolOutput } from 'mcp-app-server/types';
 
 const meta: Meta<typeof MyWidget> = {
   component: MyWidget,

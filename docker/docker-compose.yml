@@ -6,8 +6,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       target: production
-    image: chatgpt-app-template:latest
-    container_name: chatgpt-app-template
+    image: mcp-app-template:latest
+    container_name: mcp-app-template
     restart: unless-stopped
 
     ports:

@@ -1,4 +1,4 @@
-# Multi-stage build for ChatGPT App Template
+# Multi-stage build for MCP App Template
 # Using slim instead of alpine for better compatibility with native dependencies
 # Node.js 24+ required for ES2023 support and native type stripping
 

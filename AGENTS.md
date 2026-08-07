@@ -483,7 +483,7 @@ The server will:
 ### Docker Deployment
 
 ```bash
-docker build -f docker/Dockerfile -t chatgpt-app:latest .
+docker build -f docker/Dockerfile -t mcp-app:latest .
 docker-compose -f docker/docker-compose.yml up -d
 ```
 

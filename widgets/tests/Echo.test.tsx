@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import Echo from '../src/echo/Echo.js';
 import { createMockApp } from '../src/mocks/mock-app.js';
-import type { EchoToolOutput } from 'chatgpt-app-server/types';
+import type { EchoToolOutput } from 'mcp-app-server/types';
 
 describe('Echo', () => {
   it('should render the echoed message', async () => {
