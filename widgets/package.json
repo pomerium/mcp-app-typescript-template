@@ -1,5 +1,5 @@
 {
-  "name": "chatgpt-app-widgets",
+  "name": "mcp-app-widgets",
   "version": "1.0.0",
   "description": "React widgets for MCP Apps template",
   "type": "module",
@@ -39,7 +39,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.5",
-    "chatgpt-app-server": "*",
+    "mcp-app-server": "*",
     "jsdom": "^29.1.0",
     "serve": "^14.2.6",
     "storybook": "^10.2.10",
