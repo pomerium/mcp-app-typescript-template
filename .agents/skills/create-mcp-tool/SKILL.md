@@ -113,7 +113,9 @@ registerAppTool(
     // ... validate, compute output ...
     if (!canRenderUi) {
       return {
-        content: [{ type: 'text', text: 'Plain text fallback for non-UI hosts' }],
+        content: [
+          { type: 'text', text: 'Plain text fallback for non-UI hosts' },
+        ],
       };
     }
 
