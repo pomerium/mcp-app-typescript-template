@@ -566,7 +566,7 @@ await app.requestDisplayMode({ mode: 'fullscreen' });
 
 ### UI Capability Negotiation
 
-The server inspects the client's capabilities during session initialization and adapts its responses:
+The server inspects the client's capabilities on each request, carried in that request's `_meta`, and adapts its responses:
 
 - **UI-capable hosts** (ChatGPT, VS Code, etc.) — Tools include `_meta.ui.resourceUri` and return `structuredContent` for the widget to render
 - **Text-only hosts** (terminal clients, basic MCP consumers) — Tools omit UI metadata and return plain text responses
