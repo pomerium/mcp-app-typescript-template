@@ -569,7 +569,7 @@ await app.requestDisplayMode({ mode: 'fullscreen' });
 The server inspects the client's capabilities on each request, carried in that request's `_meta`, and adapts its responses:
 
 - **UI-capable hosts** (ChatGPT, VS Code, etc.) — Tools include `_meta.ui.resourceUri` and return `structuredContent` for the widget to render
-- **Text-only hosts** (terminal clients, basic MCP consumers) — Tools omit UI metadata and return plain text responses
+- **Text-only hosts** (terminal clients, basic MCP consumers) — Tools still advertise UI metadata, which hosts can ignore, and return plain text responses without `structuredContent`
 
 This happens automatically via `getUiCapability()` from `@modelcontextprotocol/ext-apps/server`. No widget changes are needed — the server handles the fallback.
 
