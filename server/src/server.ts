@@ -7,12 +7,15 @@ import { config } from 'dotenv';
 import pino from 'pino';
 import pinoHttp from 'pino-http';
 import {
+  CLIENT_CAPABILITIES_META_KEY,
   createMcpHandler,
   McpServer,
   type ProtocolEra,
+  type ServerContext,
 } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import {
+  getUiCapability,
   registerAppResource,
   registerAppTool,
   RESOURCE_MIME_TYPE,
@@ -327,14 +330,41 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
       title: 'Echo',
       description: "Echoes back the user's message in an interactive view",
       inputSchema: EchoToolInputSchema.shape,
+      // Always advertised, unconditionally: per the 2026-07-28 spec, list
+      // endpoints (tools/list included) no longer vary per-connection, so
+      // this can't be gated on the caller's capabilities the way it once
+      // was. Per-call UI-vs-text-only gating happens below instead, using
+      // that call's own declared capabilities.
       _meta: {
         ui: {
           resourceUri,
         },
       },
     },
-    async (args) => {
-      serverLogger.info({ toolName: 'echo', args }, 'Tool invoked');
+    async (args, ctx) => {
+      // ctx is typed via ext-apps' still-v1-SDK ToolCallback (see the
+      // registerAppTool cast above); the object the v2 SDK actually hands
+      // us at runtime is a ServerContext, so re-assert that to reach
+      // mcpReq.envelope. envelope's own public type is intentionally opaque
+      // (`{}`) — verified the real shape at runtime, so index into it as a
+      // plain record for the one reserved key we need.
+      const serverContext = ctx as unknown as ServerContext;
+      const envelope = serverContext.mcpReq.envelope as
+        | Record<string, unknown>
+        | undefined;
+      const clientCapabilities = envelope?.[
+        CLIENT_CAPABILITIES_META_KEY
+      ] as Parameters<typeof getUiCapability>[0];
+      const canRenderUiByCapability = Boolean(
+        getUiCapability(clientCapabilities)?.mimeTypes?.includes(
+          RESOURCE_MIME_TYPE
+        )
+      );
+
+      serverLogger.info(
+        { toolName: 'echo', args, canRenderUiByCapability },
+        'Tool invoked'
+      );
 
       try {
         const result = EchoToolInputSchema.safeParse(args);
@@ -356,6 +386,21 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
         }
 
         const { message } = result.data;
+
+        if (!canRenderUiByCapability) {
+          serverLogger.info(
+            { toolName: 'echo' },
+            'Client cannot render UI; returning text-only result'
+          );
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Echoing: "${message}"`,
+              },
+            ],
+          };
+        }
 
         const output = {
           echoedMessage: message,
