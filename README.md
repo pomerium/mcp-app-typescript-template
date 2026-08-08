@@ -948,7 +948,7 @@ curl http://localhost:8080/health
 
 ### Stateless HTTP Issues
 
-The stateless endpoint does not require an `initialize` handshake or a `Mcp-Session-Id`. If a client sends legacy session-oriented traffic, use an MCP client that supports the 2026-07-28 protocol or the SDK's stateless legacy fallback.
+This release uses the MCP `2026-07-28` stateless transport. Older 2025-era clients are supported through the SDK's stateless legacy fallback, but the fallback does not preserve transport sessions, session IDs, standalone SSE streams, or resumability. Clients that require those stateful behaviors should use a pre-`2.0.0` release.
 
 ### Build Failures
 
