@@ -7,7 +7,6 @@ import { config } from 'dotenv';
 import pino from 'pino';
 import pinoHttp from 'pino-http';
 import {
-  CLIENT_CAPABILITIES_META_KEY,
   createMcpHandler,
   McpServer,
   type ProtocolEra,
@@ -15,7 +14,6 @@ import {
 } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import {
-  getUiCapability,
   registerAppResource,
   registerAppTool,
   RESOURCE_MIME_TYPE,
@@ -25,6 +23,7 @@ import {
   type EchoToolOutput,
   type WidgetDescriptor,
 } from './types.js';
+import { clientCanRenderUi } from './ui-capability.js';
 
 config();
 
@@ -342,24 +341,10 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
       },
     },
     async (args, ctx) => {
-      // ctx is typed via ext-apps' still-v1-SDK ToolCallback (see the
-      // registerAppTool cast above); the object the v2 SDK actually hands
-      // us at runtime is a ServerContext, so re-assert that to reach
-      // mcpReq.envelope. envelope's own public type is intentionally opaque
-      // (`{}`) — verified the real shape at runtime, so index into it as a
-      // plain record for the one reserved key we need.
+      // ext-apps still types this callback against the v1 SDK; the v2 runtime
+      // supplies ServerContext, so bridge the callback type here.
       const serverContext = ctx as unknown as ServerContext;
-      const envelope = serverContext.mcpReq.envelope as
-        | Record<string, unknown>
-        | undefined;
-      const clientCapabilities = envelope?.[
-        CLIENT_CAPABILITIES_META_KEY
-      ] as Parameters<typeof getUiCapability>[0];
-      const canRenderUiByCapability = Boolean(
-        getUiCapability(clientCapabilities)?.mimeTypes?.includes(
-          RESOURCE_MIME_TYPE
-        )
-      );
+      const canRenderUiByCapability = clientCanRenderUi(serverContext);
 
       serverLogger.info(
         { toolName: 'echo', args, canRenderUiByCapability },
