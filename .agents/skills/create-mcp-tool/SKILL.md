@@ -25,9 +25,9 @@ Use WebFetch to retrieve that skill now. The steps below cover what is **differe
 | Edit `server.ts` directly              | Edit `server/src/server.ts` inside the `createMcpServer()` function             |
 | Inline Zod schemas in the tool handler | Define schemas in `server/src/types.ts`, import into `server.ts`                |
 | `vite-plugin-singlefile` for UI        | Widget build system in `widgets/` — see the `add-widget` skill if you want a UI |
-| Single-file server                     | `SessionManager` in `server/src/utils/session.ts` handles per-session isolation |
+| Single-file server                     | `createMcpHandler` creates a fresh `McpServer` for each request                 |
 
-All tools must be registered inside `createMcpServer()` in `server/src/server.ts`. This function is called once per new MCP session, so each session gets its own isolated `McpServer` instance.
+All tools must be registered inside `createMcpServer()` in `server/src/server.ts`. This function is called once per request, so each request gets its own isolated `McpServer` instance. Do not add session managers or rely on transport session state; state that must survive a request belongs in explicit tool arguments or an external store.
 
 ---
 
@@ -67,7 +67,7 @@ registerAppTool(
     inputSchema: MyToolInputSchema.shape,
   },
   async (args) => {
-    sessionLogger.info({ toolName: 'my-tool', args }, 'Tool invoked');
+    serverLogger.info({ toolName: 'my-tool', args }, 'Tool invoked');
 
     const result = MyToolInputSchema.safeParse(args);
     if (!result.success) {
@@ -96,7 +96,7 @@ registerAppTool(
 
 ### UI-enhanced tool (has a widget)
 
-When adding a UI, also follow the `add-widget` skill. The key addition is the `_meta.ui.resourceUri` field, gated on `canRenderUiByCapability` so text-only hosts still get a usable plain-text response:
+When adding a UI, also follow the `add-widget` skill. Advertise `_meta.ui.resourceUri` unconditionally so the tool definition is stable for list responses. Import `clientCanRenderUi` from `server/src/ui-capability.ts` and use the per-request check only to decide whether to include `structuredContent`; always return a usable plain-text response:
 
 ```typescript
 registerAppTool(
@@ -106,12 +106,19 @@ registerAppTool(
     title: 'My Tool',
     description: 'Does something useful',
     inputSchema: MyToolInputSchema.shape,
-    _meta: canRenderUiByCapability
-      ? { ui: { resourceUri: MY_WIDGET.uri } }
-      : {},
+    _meta: { ui: { resourceUri: MY_WIDGET.uri } },
   },
-  async (args) => {
+  async (args, ctx) => {
+    const canRenderUi = clientCanRenderUi(ctx as unknown as ServerContext);
     // ... validate, compute output ...
+    if (!canRenderUi) {
+      return {
+        content: [
+          { type: 'text', text: 'Plain text fallback for non-UI hosts' },
+        ],
+      };
+    }
+
     return {
       content: [{ type: 'text', text: 'Plain text fallback for non-UI hosts' }],
       structuredContent: output, // passed to the widget via App.ontoolresult

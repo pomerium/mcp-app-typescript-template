@@ -73,7 +73,7 @@ const MY_WIDGET: WidgetDescriptor = {
 const widgetIds = [ECHO_WIDGET.id, MY_WIDGET.id];
 ```
 
-3. Inside `createMcpServer()`, register the resource and tool following the echo pattern exactly — use `readWidgetHtml(widgetId)` and the existing CSP construction block. The `canRenderUiByCapability` check must wrap `_meta.ui.resourceUri` so text-only clients get plain responses.
+3. Inside `createMcpServer()`, register the resource and tool following the echo pattern exactly — use `readWidgetHtml(widgetId)` and the existing CSP construction block. Advertise `_meta.ui.resourceUri` unconditionally so tool definitions remain stable across requests. Use the per-request `clientCanRenderUi()` check only to gate `structuredContent`; always return a plain-text `content` fallback for clients that cannot render UI.
 
 ---
 

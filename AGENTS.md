@@ -74,11 +74,21 @@ npm run build:storybook  # Build Storybook for production
 
 ### MCP Apps Server Usage
 
-This template uses `McpServer` from `@modelcontextprotocol/sdk/server/mcp.js` with the MCP Apps helpers:
+This template uses `McpServer` from `@modelcontextprotocol/server` and `createMcpHandler` with the MCP Apps helpers:
 
 - Register UI resources with `registerAppResource`
 - Register tools with `registerAppTool`
 - Include `_meta.ui.resourceUri` on tools to bind a UI resource
+
+### Stateless HTTP
+
+The `/mcp` endpoint follows the MCP 2026-07-28 stateless transport model:
+
+- `createMcpHandler` creates a fresh server and transport for every request
+- Modern requests carry protocol version, client identity, and capabilities in `_meta`
+- The server does not create, store, or return `Mcp-Session-Id` values
+- Older 2025-era requests are served through the SDK's per-request stateless fallback
+- State that must survive a request must be represented explicitly in tool arguments or an external store
 
 ### Widget Resource Registration
 
@@ -116,17 +126,6 @@ All tool responses follow this pattern (UI binding happens in tool metadata):
   // No outputTemplate required; UI linkage lives in tool _meta.ui.resourceUri
 }
 ```
-
-### Session Management
-
-The server uses `SessionManager` (server/src/utils/session.ts) to track MCP sessions:
-
-- Sessions are created per HttpStreamable connection with unique IDs
-- Session IDs are communicated via the `mcp-session-id` header
-- Automatic cleanup of stale sessions runs based on `SESSION_MAX_AGE` (default 1 hour)
-- Each session has its own MCP server instance to maintain isolation
-- Session data includes server instance, transport, and creation timestamp
-- Resumability is enabled via `InMemoryEventStore` for handling connection interruptions
 
 ### Widget Build System
 
@@ -258,7 +257,7 @@ Hosts provide `containerDimensions` (`maxHeight`, `maxWidth`, `height`, `width`)
 
 ### UI Capability Negotiation
 
-The server inspects client capabilities during session initialization via `getUiCapability()` from `@modelcontextprotocol/ext-apps/server`. UI-capable hosts get `_meta.ui.resourceUri` on tools and `structuredContent` in responses. Text-only hosts get plain text responses with no UI metadata. This is handled automatically in `createMcpServer()`.
+UI tools always include their MCP Apps metadata and a text fallback; hosts that do not render MCP Apps can ignore the UI metadata.
 
 ### Inline Asset Mode (Local Development Only)
 
@@ -294,10 +293,9 @@ This ensures type safety and runtime validation.
 
 ### Server Structure
 
-- `server/src/server.ts` - Main server, tool registration, HttpStreamable transport setup
+- `server/src/server.ts` - Main server, stateless HTTP handler, and tool registration
 - `server/src/types.ts` - Zod schemas and TypeScript interfaces
-- `server/src/utils/session.ts` - SessionManager class for MCP session lifecycle
-- `server/tests/*.test.ts` - Vitest specs for tools and validation
+- `server/tests/*.test.ts` - Vitest specs for tools, validation, and stateless transport behavior
 
 ### Widget Structure
 
@@ -400,7 +398,6 @@ NODE_ENV=development           # Controls logging format
 PORT=8080                      # Server port
 WIDGET_PORT=4444               # Widget dev server port (default: 4444)
 LOG_LEVEL=info                 # Pino log level: fatal, error, warn, info, debug, trace
-SESSION_MAX_AGE=3600000        # Session cleanup threshold (1 hour in ms)
 CORS_ORIGIN=*                  # CORS origin (set to domain in production)
 BASE_URL=                      # Optional CDN URL for widget assets
 INLINE_DEV_MODE=true      # Local dev only: inline JS/CSS + images, fonts via Google Fonts (npm run dev:inline)
@@ -494,7 +491,6 @@ docker-compose -f docker/docker-compose.yml up -d
 - Set `NODE_ENV=production`
 - Configure `CORS_ORIGIN` to your domain (not `*`)
 - Set `LOG_LEVEL=warn` or `error` for production
-- Configure `SESSION_MAX_AGE` based on your use case
 - Set `BASE_URL` if using a CDN for widget assets
 
 **Deployment Requirements:**
@@ -514,13 +510,13 @@ docker-compose -f docker/docker-compose.yml up -d
 
 - Always read `server/src/server.ts` to understand current tool implementations before modifying
 - The `_meta.ui.resourceUri` field is critical for UI binding - never omit it
-- UI capability negotiation is automatic — `getUiCapability()` checks client capabilities and the server omits UI metadata for text-only hosts
+- UI tools include MCP Apps metadata plus a text fallback for hosts that do not render widgets
 - Widget components accept an `app` prop typed as `AppLike<T>` so the real `App` or `createMockApp()` can be injected
 - Use `containerDimensions.maxHeight` (not viewport height) for responsive widget sizing
 - When adding new App API calls (`openLink`, `sendMessage`, `updateModelContext`), add the method signature to `AppLike` in `widgets/src/types/mcp-app.ts` and the mock in `widgets/src/mocks/mock-app.ts`
 - Use `npm run dev:inline` for Claude.ai testing or remote sharing via `ssh -R 0 pom.run`
 - Widget build is separate from server build - always run `npm run build:widgets` when modifying widgets
 - The `text/html;profile=mcp-app` MIME type is non-negotiable for MCP Apps UI loading
-- Session cleanup runs automatically but sessions are isolated - each HttpStreamable connection gets its own MCP server instance
+- MCP HTTP handling is stateless - each request gets a fresh MCP server instance and no session affinity is required
 - Node.js 24+ is required for ES2023 features and native type stripping
 - Use `npm run inspect` for rapid local testing before connecting to hosts
