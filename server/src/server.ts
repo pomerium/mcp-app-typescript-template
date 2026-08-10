@@ -6,24 +6,24 @@ import express from 'express';
 import { config } from 'dotenv';
 import pino from 'pino';
 import pinoHttp from 'pino-http';
-import { v4 as uuidv4 } from 'uuid';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { InMemoryEventStore } from '@modelcontextprotocol/sdk/examples/shared/inMemoryEventStore.js';
-import type { ClientCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import {
-  getUiCapability,
+  createMcpHandler,
+  McpServer,
+  type ProtocolEra,
+  type ServerContext,
+} from '@modelcontextprotocol/server';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import {
   registerAppResource,
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
-import { SessionManager } from './utils/session.js';
 import {
   EchoToolInputSchema,
   type EchoToolOutput,
   type WidgetDescriptor,
 } from './types.js';
+import { clientCanRenderUi } from './ui-capability.js';
 
 config();
 
@@ -34,7 +34,6 @@ const ASSETS_DIR = path.resolve(ROOT_DIR, 'assets');
 const PORT = Number(process.env.PORT || '8080');
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
-const SESSION_MAX_AGE = Number(process.env.SESSION_MAX_AGE || '3600000');
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const WIDGET_PORT = Number(process.env.WIDGET_PORT || '4444');
 const { BASE_URL = '' } = process.env;
@@ -233,31 +232,23 @@ function inlineWidgetAssets(html: string): string {
 /**
  * Create an MCP server instance with echo tool
  */
-function createMcpServer(
-  sessionId: string,
-  clientCapabilities?: ClientCapabilities & {
-    extensions?: Record<string, unknown>;
-  }
-): McpServer {
+function createMcpServer(protocolEra: ProtocolEra): McpServer {
   const server = new McpServer({
     name: 'mcp-app-template',
     version: '1.0.0',
   });
 
-  const sessionLogger = logger.child({ sessionId });
+  const serverLogger = logger.child({ protocolEra });
 
   const resourceUri = ECHO_WIDGET.uri;
-  const canRenderUiByCapability = Boolean(
-    getUiCapability(clientCapabilities)?.mimeTypes?.includes(RESOURCE_MIME_TYPE)
-  );
 
   registerAppResource(
-    server,
+    server as unknown as Parameters<typeof registerAppResource>[0],
     resourceUri,
     resourceUri,
     { mimeType: RESOURCE_MIME_TYPE },
     async () => {
-      sessionLogger.debug({ resourceUri }, 'Resource callback called');
+      serverLogger.debug({ resourceUri }, 'Resource callback called');
       const widgetId = resourceUri.replace('ui://', '');
       try {
         const html = await readWidgetHtml(widgetId);
@@ -301,11 +292,11 @@ function createMcpServer(
               }
             : undefined;
 
-        sessionLogger.info(
+        serverLogger.info(
           { cspMeta },
           'Constructed CSP meta for widget resource'
         );
-        sessionLogger.info({ resourceUri, widgetId }, 'Widget resource loaded');
+        serverLogger.info({ resourceUri, widgetId }, 'Widget resource loaded');
 
         const finalHtml = INLINE_DEV_MODE
           ? (inlinedHtmlCache.get(widgetId) ?? inlineWidgetAssets(html))
@@ -322,7 +313,7 @@ function createMcpServer(
           ],
         };
       } catch (err) {
-        sessionLogger.error(
+        serverLogger.error(
           { err, resourceUri, widgetId },
           'Failed to load widget'
         );
@@ -332,22 +323,30 @@ function createMcpServer(
   );
 
   registerAppTool(
-    server,
+    server as unknown as Parameters<typeof registerAppTool>[0],
     'echo',
     {
       title: 'Echo',
       description: "Echoes back the user's message in an interactive view",
       inputSchema: EchoToolInputSchema.shape,
-      _meta: canRenderUiByCapability
-        ? {
-            ui: {
-              resourceUri,
-            },
-          }
-        : {},
+      // Always advertised, unconditionally: per the 2026-07-28 spec, list
+      // endpoints (tools/list included) no longer vary per-connection, so
+      // this can't be gated on the caller's capabilities the way it once
+      // was. Per-call UI-vs-text-only gating happens below instead, using
+      // that call's own declared capabilities.
+      _meta: {
+        ui: {
+          resourceUri,
+        },
+      },
     },
-    async (args) => {
-      sessionLogger.info(
+    async (args, ctx) => {
+      // ext-apps still types this callback against the v1 SDK; the v2 runtime
+      // supplies ServerContext, so bridge the callback type here.
+      const serverContext = ctx as unknown as ServerContext;
+      const canRenderUiByCapability = clientCanRenderUi(serverContext);
+
+      serverLogger.info(
         { toolName: 'echo', args, canRenderUiByCapability },
         'Tool invoked'
       );
@@ -356,7 +355,7 @@ function createMcpServer(
         const result = EchoToolInputSchema.safeParse(args);
 
         if (!result.success) {
-          sessionLogger.error(
+          serverLogger.error(
             { err: result.error, toolName: 'echo' },
             'Validation failed'
           );
@@ -373,14 +372,11 @@ function createMcpServer(
 
         const { message } = result.data;
 
-        const output = {
-          echoedMessage: message,
-          timestamp: new Date().toISOString(),
-        } satisfies EchoToolOutput;
-
-        sessionLogger.info({ output }, 'Tool execution successful');
-
         if (!canRenderUiByCapability) {
+          serverLogger.info(
+            { toolName: 'echo' },
+            'Client cannot render UI; returning text-only result'
+          );
           return {
             content: [
               {
@@ -390,6 +386,13 @@ function createMcpServer(
             ],
           };
         }
+
+        const output = {
+          echoedMessage: message,
+          timestamp: new Date().toISOString(),
+        } satisfies EchoToolOutput;
+
+        serverLogger.info({ output }, 'Tool execution successful');
 
         return {
           content: [
@@ -401,7 +404,7 @@ function createMcpServer(
           structuredContent: output,
         };
       } catch (err) {
-        sessionLogger.error({ err, toolName: 'echo' }, 'Tool execution failed');
+        serverLogger.error({ err, toolName: 'echo' }, 'Tool execution failed');
         throw err;
       }
     }
@@ -461,7 +464,10 @@ async function main() {
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', CORS_ORIGIN);
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, MCP-Protocol-Version, Mcp-Method, Mcp-Name'
+    );
 
     if (req.method === 'OPTIONS') {
       res.sendStatus(200);
@@ -475,83 +481,27 @@ async function main() {
 
   app.use('/assets', express.static(ASSETS_DIR));
 
-  const sessionManager = new SessionManager(logger);
-
   app.get('/health', (_req, res) => {
-    res.json({
-      status: 'ok',
-      version: '1.0.0',
-      sessions: sessionManager.count(),
-      timestamp: new Date().toISOString(),
-    });
+    res.json({ status: 'ok' });
   });
 
-  app.all('/mcp', async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  const handler = createMcpHandler(({ era }) => createMcpServer(era), {
+    legacy: 'stateless',
+    onerror: (err) => {
+      logger.error({ err }, 'Error handling MCP request');
+    },
+  });
+  const nodeHandler = toNodeHandler(handler, {
+    onerror: (err) => {
+      logger.error({ err }, 'Error adapting MCP request for Node');
+    },
+  });
 
-    logger.info({ method: req.method, sessionId, ip: req.ip }, 'MCP request');
+  app.all('/mcp', (req, res) => {
+    logger.info({ method: req.method, ip: req.ip }, 'MCP request');
 
-    try {
-      const session = sessionId ? sessionManager.get(sessionId) : undefined;
-
-      if (
-        !sessionId &&
-        req.method === 'POST' &&
-        isInitializeRequest(req.body)
-      ) {
-        logger.info('Initializing new session');
-
-        const eventStore = new InMemoryEventStore();
-
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => uuidv4(),
-          eventStore,
-          onsessioninitialized: (newSessionId) => {
-            logger.info({ sessionId: newSessionId }, 'Session initialized');
-          },
-        });
-
-        transport.onclose = () => {
-          const sid = transport.sessionId;
-          if (sid) {
-            logger.info({ sessionId: sid }, 'Transport closed');
-            sessionManager.delete(sid);
-          }
-        };
-
-        const tempSessionId = 'initializing';
-        const clientCapabilities = req.body.params.capabilities as
-          | (ClientCapabilities & { extensions?: Record<string, unknown> })
-          | undefined;
-        const server = createMcpServer(tempSessionId, clientCapabilities);
-        await server.connect(transport);
-
-        await transport.handleRequest(req, res, req.body);
-
-        const actualSessionId = transport.sessionId;
-        if (actualSessionId) {
-          sessionManager.create(actualSessionId, server, transport);
-        }
-
-        return;
-      }
-
-      if (session) {
-        await session.transport.handleRequest(req, res, req.body);
-        return;
-      }
-
-      logger.warn({ sessionId, method: req.method }, 'Invalid MCP request');
-      res.status(400).json({
-        jsonrpc: '2.0',
-        error: {
-          code: -32000,
-          message: 'Bad Request: No valid session ID provided',
-        },
-        id: null,
-      });
-    } catch (err) {
-      logger.error({ err, sessionId }, 'Error handling MCP request');
+    nodeHandler(req, res, req.body).catch((err: unknown) => {
+      logger.error({ err }, 'Unhandled error serving MCP request');
       if (!res.headersSent) {
         res.status(500).json({
           jsonrpc: '2.0',
@@ -561,26 +511,22 @@ async function main() {
           },
           id: null,
         });
+      } else {
+        res.end();
       }
-    }
+    });
   });
-
-  const cleanupInterval = setInterval(() => {
-    sessionManager.cleanup(SESSION_MAX_AGE);
-  }, 60000);
 
   const httpServer = createServer(app);
 
   const shutdown = async () => {
     logger.info('Shutting down server...');
 
-    clearInterval(cleanupInterval);
-
     httpServer.close(() => {
       logger.info('HTTP server closed');
     });
 
-    await sessionManager.closeAll();
+    await handler.close();
 
     process.exit(0);
   };

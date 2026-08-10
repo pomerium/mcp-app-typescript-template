@@ -9,7 +9,7 @@ A well-architected starter template demonstrating best practices for building MC
 - **React Widgets** - Interactive Echo component with MCP Apps `App` API demo
 - **Display Modes** - Inline, picture-in-picture, and fullscreen with runtime toggling via `requestDisplayMode()`
 - **App API Demo** - `callServerTool`, `openLink`, `sendMessage`, `updateModelContext` showcased in the Echo widget
-- **UI Capability Negotiation** - Server detects host capabilities and falls back to text-only for non-UI clients
+- **Stateless MCP HTTP** - Per-request server factories with no transport sessions or session affinity
 - **Inline Widget Assets** - Self-contained HTML mode for hosts that sandbox iframes (e.g. Claude.ai)
 - **Container Dimensions** - Responsive widget sizing using host-provided `containerDimensions`
 - **Mock App** - Drop-in `createMockApp()` helper for testing and Storybook without a live MCP connection
@@ -20,7 +20,7 @@ A well-architected starter template demonstrating best practices for building MC
 - **Testing** - [Vitest](https://vitest.dev/) for server and widgets with accessibility checks
 - **Build Optimizations** - Parallel builds, content hashing, compression
 - **[Docker](https://www.docker.com/)** - Multi-stage builds with health checks
-- **Production Ready** - Session management, graceful shutdown, error handling
+- **Production Ready** - Stateless transport, graceful shutdown, and error handling
 
 ## Architecture
 
@@ -294,8 +294,6 @@ mcp-app-template/
 │   ├── src/
 │   │   ├── server.ts       # Main server with echo tool
 │   │   ├── types.ts        # Type definitions
-│   │   └── utils/
-│   │       └── session.ts  # Session management
 │   ├── tests/
 │   │   └── echo-tool.test.ts
 │   └── package.json        # Server dependencies
@@ -568,10 +566,10 @@ await app.requestDisplayMode({ mode: 'fullscreen' });
 
 ### UI Capability Negotiation
 
-The server inspects the client's capabilities during session initialization and adapts its responses:
+The server inspects the client's capabilities on each request, carried in that request's `_meta`, and adapts its responses:
 
 - **UI-capable hosts** (ChatGPT, VS Code, etc.) — Tools include `_meta.ui.resourceUri` and return `structuredContent` for the widget to render
-- **Text-only hosts** (terminal clients, basic MCP consumers) — Tools omit UI metadata and return plain text responses
+- **Text-only hosts** (terminal clients, basic MCP consumers) — Tools still advertise UI metadata, which hosts can ignore, and return plain text responses without `structuredContent`
 
 This happens automatically via `getUiCapability()` from `@modelcontextprotocol/ext-apps/server`. No widget changes are needed — the server handles the fallback.
 
@@ -719,9 +717,6 @@ NODE_ENV=development
 PORT=8080
 LOG_LEVEL=info          # fatal, error, warn, info, debug, trace
 
-# Session Management
-SESSION_MAX_AGE=3600000 # 1 hour in milliseconds
-
 # CORS (development)
 CORS_ORIGIN=*
 
@@ -759,11 +754,10 @@ return {
 
 ### MCP Server Endpoints
 
-| Endpoint                       | Method | Description                                           |
-| ------------------------------ | ------ | ----------------------------------------------------- |
-| `/health`                      | GET    | Health check (returns status, version, session count) |
-| `/mcp`                         | GET    | SSE connection endpoint for MCP clients               |
-| `/mcp/messages?sessionId=<id>` | POST   | Message handling for MCP protocol                     |
+| Endpoint  | Method | Description                    |
+| --------- | ------ | ------------------------------ |
+| `/health` | GET    | Health check                   |
+| `/mcp`    | POST   | Stateless MCP request endpoint |
 
 ### Echo Tool Schema
 
@@ -820,7 +814,7 @@ npm run test:coverage
 
 - Input validation with Zod
 - Tool response structure
-- Session management
+- Stateless transport behavior
 - Error handling
 
 **Widget Tests** (`widgets/tests/`):
@@ -913,7 +907,6 @@ curl http://localhost:8080/health
 - Set `NODE_ENV=production`
 - Configure `CORS_ORIGIN` to your domain (not `*`)
 - Set `LOG_LEVEL=warn` or `error` for production
-- Configure `SESSION_MAX_AGE` based on your use case
 - Set `BASE_URL` if using a CDN for widget assets
 
 **Deployment Requirements:**
@@ -953,16 +946,9 @@ curl http://localhost:8080/health
 3. Refresh connector: Settings → Connectors → Refresh
 4. Verify tool schema is valid JSON Schema
 
-### Session Issues
+### Stateless HTTP Issues
 
-**Symptom**: "Session not found" errors
-
-**Solutions**:
-
-1. Check `SESSION_MAX_AGE` setting
-2. Review session cleanup logs
-3. Ensure SSE connection is maintained
-4. Check CORS configuration
+This release uses the MCP `2026-07-28` stateless transport. Older 2025-era clients are supported through the SDK's stateless legacy fallback, but the fallback does not preserve transport sessions, session IDs, standalone SSE streams, or resumability. Clients that require those stateful behaviors should use a pre-`2.0.0` release.
 
 ### Build Failures
 
@@ -988,11 +974,13 @@ curl http://localhost:8080/health
 
 ### Why `McpServer` + MCP Apps Helpers?
 
-The template uses `McpServer` from `@modelcontextprotocol/sdk/server/mcp.js` together with `@modelcontextprotocol/ext-apps/server` helpers because:
+The template uses `McpServer` from `@modelcontextprotocol/server` together with `@modelcontextprotocol/ext-apps/server` helpers because:
 
 - `registerAppTool` and `registerAppResource` handle MCP Apps metadata wiring consistently
 - Tool UI binding is declared with `_meta.ui.resourceUri` in one place
 - The pattern is portable across MCP Apps hosts (ChatGPT, VS Code, Claude, Goose)
+
+The HTTP endpoint uses `createMcpHandler` from the v2 TypeScript SDK. The handler creates a fresh server and transport per request, which implements the 2026-07-28 stateless protocol and allows horizontal scaling without session affinity.
 
 ### Why Node.js 24 + ES2023?
 
