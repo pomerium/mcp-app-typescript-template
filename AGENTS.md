@@ -271,6 +271,8 @@ In development the widget resource callback (`server/src/server.ts`) picks the H
 
 The widget origin comes from `BASE_URL` when set (a tunnel to port 4444, e.g. a second `ssh -R 0:localhost:4444 pom.run` session — the Vite dev server derives `allowedHosts` and HMR websocket config from it too), otherwise `http://localhost:4444`.
 
+These are two independent pipelines from the same source files. Edit loop: HMR clients get websocket module pushes (the watch build's output is never used by them, and the dev server ignores `assets/` writes so rebuilds can't trigger reloads); an inline client's rendered widget is a frozen snapshot — the next `resources/read` serves freshly re-inlined HTML, so re-invoke the tool in claude.ai to see changes (a page refresh may hit a host cache).
+
 `INLINE_DEV_MODE=true` (`npm run dev:inline`) forces inlined HTML for every client. Inlining is never used in production — hosts fetch widget assets from `BASE_URL`.
 
 Experimental: `WIDGET_BOOTSTRAP_CLIENTS` (dev only, takes precedence over the inline list) serves matching clients a tiny HTML that loads the dev module graph via dynamic `import()` instead of a static `<script src>` tag — srcdoc-iframe hosts like claude.ai don't execute static external script tags but may allow dynamic loading from `resourceDomains` origins (this is how the official ext-apps map-server example loads CesiumJS). Requires `BASE_URL` set to an https tunnel. If it proves out against claude.ai, it enables no-build dev there too.

@@ -70,7 +70,7 @@ This starts everything you need — no manual build step:
 - **Widget dev server** (live modules + HMR): `http://localhost:4444`
 - **Background watch build**: keeps `assets/` fresh so hosts that need self-contained HTML (like Claude.ai) always get an up-to-date inlined widget
 
-The server picks the right widget HTML per request: hosts that can load external assets get live dev modules with hot module replacement, and hosts that can't (Claude.ai, plus any client that doesn't identify itself) automatically get fully inlined HTML rebuilt on every file change. See [Inline Widget Assets](#inline-widget-assets).
+The server picks the right widget HTML per request: hosts that can load external assets get live dev modules with hot module replacement, and hosts that can't (Claude.ai, plus any client that doesn't identify itself) automatically get fully inlined HTML rebuilt on every file change. See [How Development Serving Works](#how-development-serving-works).
 
 > **Note:** The MCP server is a backend service. To test it, follow the host connection steps below (ChatGPT example) or use `npm run inspect` for local testing.
 
@@ -577,6 +577,40 @@ The server inspects the client's capabilities on each request, carried in that r
 - **Text-only hosts** (terminal clients, basic MCP consumers) — Tools still advertise UI metadata, which hosts can ignore, and return plain text responses without `structuredContent`
 
 This happens automatically via `getUiCapability()` from `@modelcontextprotocol/ext-apps/server`. No widget changes are needed — the server handles the fallback.
+
+### How Development Serving Works
+
+`npm run dev` runs three processes side by side:
+
+| Process             | What it does                                                                            |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `dev:server`        | MCP server on `:8080` — decides **per request** which widget HTML to serve              |
+| `dev:widgets`       | Vite dev server on `:4444` — live source modules + HMR websocket                        |
+| `dev:widgets:build` | `vite build --watch` — keeps `assets/` fresh so an inlined snapshot is always available |
+
+These form **two independent delivery pipelines** from the same source files. The watch build is never involved in the HMR path — it exists solely to keep a self-contained snapshot on standby for hosts that need one.
+
+#### First render (a host requests the widget)
+
+When a tool call renders the widget, the host issues `resources/read` and the server inspects the client's identity (`clientInfo` in the request `_meta`):
+
+1. **Matches `WIDGET_INLINE_CLIENTS`** (default: `claude`) **or sends no identity** → the server returns a **self-contained snapshot**: the latest `assets/` build with JS/CSS inlined and local images as data URIs. Nothing is fetched at runtime; the iframe has no connection back to your machine.
+2. **Any other identified client** (e.g. ChatGPT dev mode) → the server returns a **~300-byte shell** whose module script points at the Vite dev server (`BASE_URL` if set, else `http://localhost:4444`). The browser loads your source files as native ES modules, transformed in memory — the `assets/` build is not involved at any point. CSP `resourceDomains`/`connectDomains` (including the `ws(s)://` HMR socket) are set to match.
+
+#### While you develop (save a file)
+
+- **HMR clients** — Vite pushes the changed module over the websocket and React Fast Refresh swaps it in place. Instant, no reload, component state preserved. The watch build also re-runs in the background, but its output isn't used by these clients, and the dev server deliberately ignores `assets/` writes so a finishing build can never trigger a page reload.
+- **Inline clients (Claude.ai)** — the rendered widget is a frozen snapshot; nothing can be pushed to it. The watch build finishes (~1s) and the server re-inlines automatically, so the **next** `resources/read` returns fresh HTML. Invoke the tool again to see your changes — a browser refresh may serve a host-cached copy, so re-invoking is the reliable path.
+
+> **Experimental:** `WIDGET_BOOTSTRAP_CLIENTS` serves matching clients a shell that loads the dev module graph via dynamic `import()` instead of a static script tag — srcdoc-iframe hosts like Claude.ai don't execute static external script tags but may allow dynamic loading from `resourceDomains` origins. If this proves out, Claude.ai can join the HMR pipeline too. Requires `BASE_URL` set to an https tunnel; off by default.
+
+#### Production is unaffected
+
+None of this machinery runs in production (`NODE_ENV=production`):
+
+- `npm run build` output is unchanged: hashed bundles in `assets/` plus HTML referencing them via `BASE_URL`
+- The server never inlines, never serves dev-server HTML, and ignores `WIDGET_INLINE_CLIENTS` / `WIDGET_BOOTSTRAP_CLIENTS` — all per-client switching is gated on `NODE_ENV=development`
+- Hosts fetch widget assets from `BASE_URL` (CDN or static host) exactly as before
 
 ### Inline Widget Assets
 
