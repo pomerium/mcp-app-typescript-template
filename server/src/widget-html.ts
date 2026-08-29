@@ -79,16 +79,28 @@ export function shouldInlineWidgetHtml(options: {
     return true;
   }
 
-  const identityText = [options.clientInfo?.name, options.clientInfo?.title]
+  if (!options.clientInfo?.name && !options.clientInfo?.title) {
+    return true;
+  }
+
+  return clientMatches(options.clientInfo, options.inlineClients);
+}
+
+/** Case-insensitive substring match of a client's name/title against a list */
+export function clientMatches(
+  clientInfo: ClientIdentity | undefined,
+  clients: string[]
+): boolean {
+  const identityText = [clientInfo?.name, clientInfo?.title]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
 
   if (!identityText) {
-    return true;
+    return false;
   }
 
-  return options.inlineClients.some((client) => identityText.includes(client));
+  return clients.some((client) => identityText.includes(client));
 }
 
 export interface WidgetOrigin {
@@ -117,6 +129,41 @@ export function resolveWidgetOrigin(
     wsOrigin: origin.replace(/^http/, 'ws'),
     isLocalhost: url.hostname === 'localhost' || url.hostname === '127.0.0.1',
   };
+}
+
+/**
+ * Minimal dev HTML that loads the Vite dev module graph via dynamic import()
+ * instead of a static <script src> tag. Hosts that render widget HTML in
+ * srcdoc iframes (e.g. claude.ai) don't execute static external script tags,
+ * but do allow dynamic loading from origins declared in resourceDomains —
+ * see the official ext-apps map-server example, which loads CesiumJS this
+ * way. Experimental: enable per client via WIDGET_BOOTSTRAP_CLIENTS.
+ */
+export function buildDevBootstrapHtml(
+  widgetId: string,
+  widgetOrigin: string
+): string {
+  const moduleUrl = `${widgetOrigin}/virtual:widget-${widgetId}.js`;
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${widgetId}</title>
+</head>
+<body>
+  <div id="${widgetId}-root"></div>
+  <script type="module">
+    import(${JSON.stringify(moduleUrl)}).catch((err) => {
+      const root = document.getElementById(${JSON.stringify(`${widgetId}-root`)});
+      if (root) {
+        root.textContent =
+          'Failed to load dev modules from ${widgetOrigin}: ' + err;
+      }
+    });
+  </script>
+</body>
+</html>`;
 }
 
 const GOOGLE_FONTS_LINK =

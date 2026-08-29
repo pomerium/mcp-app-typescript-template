@@ -25,6 +25,8 @@ import {
 } from './types.js';
 import { clientCanRenderUi } from './ui-capability.js';
 import {
+  buildDevBootstrapHtml,
+  clientMatches,
   getClientIdentity,
   GOOGLE_FONTS_DOMAINS,
   inlineWidgetAssets,
@@ -54,6 +56,16 @@ const IS_DEV = (process.env.NODE_ENV || 'development') === 'development';
 const WIDGET_INLINE_CLIENTS = parseClientList(
   process.env.WIDGET_INLINE_CLIENTS,
   ['claude']
+);
+// Experimental: clients that get dev-server modules via a dynamic import()
+// bootstrap instead of inlined HTML. Hosts rendering widgets in srcdoc
+// iframes don't execute static <script src> tags but may allow dynamic
+// loading from resourceDomains origins. Takes precedence over
+// WIDGET_INLINE_CLIENTS so e.g. WIDGET_BOOTSTRAP_CLIENTS=claude can trial
+// no-build dev against claude.ai (requires BASE_URL to be an https tunnel).
+const WIDGET_BOOTSTRAP_CLIENTS = parseClientList(
+  process.env.WIDGET_BOOTSTRAP_CLIENTS,
+  []
 );
 
 const logger = pino({
@@ -232,19 +244,31 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
         // Inlined HTML works in every host; the dev-server module graph
         // (with HMR) only works in hosts that load external origins from the
         // resource CSP. Unidentified clients get the safe inlined bundle.
+        // Bootstrap mode (experimental) loads dev modules via dynamic
+        // import() for srcdoc-iframe hosts that block static script tags.
+        const useBootstrap =
+          IS_DEV &&
+          !INLINE_DEV_MODE &&
+          clientMatches(clientInfo, WIDGET_BOOTSTRAP_CLIENTS);
         const useInline =
-          INLINE_DEV_MODE ||
-          (IS_DEV &&
-            shouldInlineWidgetHtml({
-              clientInfo,
-              inlineClients: WIDGET_INLINE_CLIENTS,
-            }));
+          !useBootstrap &&
+          (INLINE_DEV_MODE ||
+            (IS_DEV &&
+              shouldInlineWidgetHtml({
+                clientInfo,
+                inlineClients: WIDGET_INLINE_CLIENTS,
+              })));
 
         const resourceDomains: string[] = [];
         const connectDomains: string[] = [];
         let finalHtml: string;
 
-        if (useInline) {
+        if (useBootstrap) {
+          const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
+          finalHtml = buildDevBootstrapHtml(widgetId, widgetOrigin.origin);
+          resourceDomains.push(widgetOrigin.origin);
+          connectDomains.push(widgetOrigin.origin, widgetOrigin.wsOrigin);
+        } else if (useInline) {
           finalHtml = getInlinedHtml(widgetId);
           // Inlining swaps local @fontsource fonts for Google Fonts.
           // Remove if you self-host fonts.
@@ -280,7 +304,14 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
             : undefined;
 
         serverLogger.info(
-          { resourceUri, widgetId, clientInfo, useInline, cspMeta },
+          {
+            resourceUri,
+            widgetId,
+            clientInfo,
+            useInline,
+            useBootstrap,
+            cspMeta,
+          },
           'Widget resource loaded'
         );
 

@@ -273,6 +273,8 @@ The widget origin comes from `BASE_URL` when set (a tunnel to port 4444, e.g. a 
 
 `INLINE_DEV_MODE=true` (`npm run dev:inline`) forces inlined HTML for every client. Inlining is never used in production — hosts fetch widget assets from `BASE_URL`.
 
+Experimental: `WIDGET_BOOTSTRAP_CLIENTS` (dev only, takes precedence over the inline list) serves matching clients a tiny HTML that loads the dev module graph via dynamic `import()` instead of a static `<script src>` tag — srcdoc-iframe hosts like claude.ai don't execute static external script tags but may allow dynamic loading from `resourceDomains` origins (this is how the official ext-apps map-server example loads CesiumJS). Requires `BASE_URL` set to an https tunnel. If it proves out against claude.ai, it enables no-build dev there too.
+
 If you self-host tunneling, you can create a public route in Pomerium for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains`.
 
 ### External Resources & CSP

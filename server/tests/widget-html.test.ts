@@ -7,6 +7,8 @@ import {
   type ServerContext,
 } from '@modelcontextprotocol/server';
 import {
+  buildDevBootstrapHtml,
+  clientMatches,
   getClientIdentity,
   inlineWidgetAssets,
   parseClientList,
@@ -105,6 +107,34 @@ describe('shouldInlineWidgetHtml', () => {
     expect(
       shouldInlineWidgetHtml({ clientInfo: { name: 'chatgpt' }, inlineClients })
     ).toBe(false);
+  });
+});
+
+describe('clientMatches', () => {
+  it('matches on name or title, case-insensitive substring', () => {
+    expect(clientMatches({ name: 'Claude-AI' }, ['claude'])).toBe(true);
+    expect(clientMatches({ title: 'claude.ai web' }, ['claude'])).toBe(true);
+    expect(clientMatches({ name: 'chatgpt' }, ['claude'])).toBe(false);
+  });
+
+  it('never matches unidentified clients or empty lists', () => {
+    expect(clientMatches(undefined, ['claude'])).toBe(false);
+    expect(clientMatches({ name: 'claude-ai' }, [])).toBe(false);
+  });
+});
+
+describe('buildDevBootstrapHtml', () => {
+  it('loads the widget module via dynamic import, not a static script src', () => {
+    const html = buildDevBootstrapHtml(
+      'echo',
+      'https://widgets.example.pom.run'
+    );
+
+    expect(html).toContain(
+      'import("https://widgets.example.pom.run/virtual:widget-echo.js")'
+    );
+    expect(html).toContain('id="echo-root"');
+    expect(html).not.toMatch(/<script[^>]*src=/);
   });
 });
 
