@@ -30,12 +30,15 @@ This starts both the MCP server (`http://localhost:8080`) and widget dev server 
 **Development:**
 
 ```bash
-npm run dev           # Start everything (server + widgets in watch mode)
-npm run dev:inline    # Inlined assets for Claude.ai or remote sharing via ssh -R 0 pom.run
-npm run dev:server    # Start only MCP server (watch mode)
-npm run dev:widgets   # Start only widget dev server
-npm run inspect       # Test with MCP Inspector
+npm run dev               # Start everything (server + widget dev server + background watch build)
+npm run dev:inline        # Force inlined assets for every client (rarely needed)
+npm run dev:server        # Start only MCP server (watch mode)
+npm run dev:widgets       # Start only widget dev server
+npm run dev:widgets:build # Start only the widget watch build
+npm run inspect           # Test with MCP Inspector
 ```
+
+`npm run dev` needs no manual build step: a background `vite build --watch` keeps `assets/` fresh, and the server decides per MCP request whether to serve live dev-server modules (HMR) or fully inlined HTML, based on the requesting client (see "Per-Client Widget HTML" below).
 
 **Building:**
 
@@ -259,11 +262,18 @@ Hosts provide `containerDimensions` (`maxHeight`, `maxWidth`, `height`, `width`)
 
 UI tools always include their MCP Apps metadata and a text fallback; hosts that do not render MCP Apps can ignore the UI metadata.
 
-### Inline Asset Mode (Local Development Only)
+### Per-Client Widget HTML (Development)
 
-`npm run dev:inline` (`INLINE_DEV_MODE=true`) inlines JS/CSS into widget HTML as `<script>`/`<style>` blocks, inlines local images as data URIs via Vite's `assetsInlineLimit`, and loads fonts via Google Fonts (domains auto-added to `resourceDomains`). Use this for testing in Claude.ai or when sharing your work remotely via `ssh -R 0 pom.run`.
+In development the widget resource callback (`server/src/server.ts`) picks the HTML per MCP request using helpers in `server/src/widget-html.ts`:
 
-If you self-host tunneling, you can create a public route in Pomerium for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains`. Inline mode is not needed in production.
+- Clients matching `WIDGET_INLINE_CLIENTS` (default `claude`, comma-separated case-insensitive substring match on the client's `_meta` `clientInfo` name/title) — and clients that send no identity — get **fully inlined HTML** built from `assets/` (JS/CSS as `<script>`/`<style>` blocks, local images as data URIs, fonts via Google Fonts with domains auto-added to `resourceDomains`). The background watch build plus an `fs.watch` on `assets/` keeps this fresh on every file change.
+- All other identified clients (e.g. ChatGPT dev mode) get **dev-server HTML** referencing live Vite modules, with the widget origin and its `ws(s)://` HMR websocket added to the resource CSP.
+
+The widget origin comes from `BASE_URL` when set (a tunnel to port 4444, e.g. a second `ssh -R 0:localhost:4444 pom.run` session — the Vite dev server derives `allowedHosts` and HMR websocket config from it too), otherwise `http://localhost:4444`.
+
+`INLINE_DEV_MODE=true` (`npm run dev:inline`) forces inlined HTML for every client. Inlining is never used in production — hosts fetch widget assets from `BASE_URL`.
+
+If you self-host tunneling, you can create a public route in Pomerium for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains`.
 
 ### External Resources & CSP
 
@@ -399,8 +409,9 @@ PORT=8080                      # Server port
 WIDGET_PORT=4444               # Widget dev server port (default: 4444)
 LOG_LEVEL=info                 # Pino log level: fatal, error, warn, info, debug, trace
 CORS_ORIGIN=*                  # CORS origin (set to domain in production)
-BASE_URL=                      # Optional CDN URL for widget assets
-INLINE_DEV_MODE=true      # Local dev only: inline JS/CSS + images, fonts via Google Fonts (npm run dev:inline)
+BASE_URL=                      # Public widget asset URL: CDN in production, tunnel to the widget dev server in dev
+WIDGET_INLINE_CLIENTS=claude   # Clients served inlined HTML in dev (comma-separated substring match)
+INLINE_DEV_MODE=true           # Force inlined widget HTML for every client (npm run dev:inline)
 ```
 
 Requirements:
@@ -514,7 +525,7 @@ docker-compose -f docker/docker-compose.yml up -d
 - Widget components accept an `app` prop typed as `AppLike<T>` so the real `App` or `createMockApp()` can be injected
 - Use `containerDimensions.maxHeight` (not viewport height) for responsive widget sizing
 - When adding new App API calls (`openLink`, `sendMessage`, `updateModelContext`), add the method signature to `AppLike` in `widgets/src/types/mcp-app.ts` and the mock in `widgets/src/mocks/mock-app.ts`
-- Use `npm run dev:inline` for Claude.ai testing or remote sharing via `ssh -R 0 pom.run`
+- `npm run dev` covers Claude.ai automatically (per-client inlined HTML); set `BASE_URL` to a tunnel of port 4444 for HMR through hosts that load external assets
 - Widget build is separate from server build - always run `npm run build:widgets` when modifying widgets
 - The `text/html;profile=mcp-app` MIME type is non-negotiable for MCP Apps UI loading
 - MCP HTTP handling is stateless - each request gets a fresh MCP server instance and no session affinity is required

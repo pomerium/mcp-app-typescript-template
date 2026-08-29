@@ -9,11 +9,11 @@
     "widgets"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:widgets\"",
-    "dev:inline": "INLINE_DEV_MODE=true concurrently \"npm run dev:server\" \"npm run dev:widgets:inline\"",
+    "dev": "concurrently -n server,widgets,build \"npm run dev:server\" \"npm run dev:widgets\" \"npm run dev:widgets:build\"",
+    "dev:inline": "INLINE_DEV_MODE=true concurrently -n server,build \"npm run dev:server\" \"npm run dev:widgets:build\"",
     "dev:server": "npm run dev --workspace=server",
     "dev:widgets": "npm run dev --workspace=widgets",
-    "dev:widgets:inline": "npm run build:watch --workspace=widgets",
+    "dev:widgets:build": "npm run build:watch --workspace=widgets",
     "start": "concurrently \"npm run start:server\" \"npm run start:widgets\"",
     "start:server": "npm run start --workspace=server",
     "start:widgets": "npm run serve --workspace=widgets",

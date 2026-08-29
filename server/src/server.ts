@@ -24,6 +24,14 @@ import {
   type WidgetDescriptor,
 } from './types.js';
 import { clientCanRenderUi } from './ui-capability.js';
+import {
+  getClientIdentity,
+  GOOGLE_FONTS_DOMAINS,
+  inlineWidgetAssets,
+  parseClientList,
+  resolveWidgetOrigin,
+  shouldInlineWidgetHtml,
+} from './widget-html.js';
 
 config();
 
@@ -38,6 +46,15 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const WIDGET_PORT = Number(process.env.WIDGET_PORT || '4444');
 const { BASE_URL = '' } = process.env;
 const INLINE_DEV_MODE = process.env.INLINE_DEV_MODE === 'true';
+const IS_DEV = (process.env.NODE_ENV || 'development') === 'development';
+// Clients that get fully inlined widget HTML in dev (comma-separated,
+// case-insensitive substring match on the client's name/title). claude.ai
+// can't load a Vite dev module graph from an external origin, so it gets the
+// auto-rebuilt inlined bundle instead. Unidentified clients are also inlined.
+const WIDGET_INLINE_CLIENTS = parseClientList(
+  process.env.WIDGET_INLINE_CLIENTS,
+  ['claude']
+);
 
 const logger = pino({
   level: LOG_LEVEL,
@@ -60,31 +77,67 @@ const ECHO_WIDGET: WidgetDescriptor = {
   uri: 'ui://echo',
 };
 
-/** Pre-inlined widget HTML cache — populated at startup when INLINE_DEV_MODE is true */
+/** Inlined widget HTML cache — invalidated by the assets watcher on rebuilds */
 const inlinedHtmlCache = new Map<string, string>();
 
 function buildInlinedHtml(widgetId: string): string | null {
   const htmlPath = path.join(ASSETS_DIR, `${widgetId}.html`);
   if (!fs.existsSync(htmlPath)) {
-    logger.warn({ htmlPath }, 'Cannot pre-inline: HTML file not found');
+    logger.warn({ htmlPath }, 'Cannot inline: HTML file not found');
     return null;
   }
   const html = fs.readFileSync(htmlPath, 'utf-8');
-  const inlined = inlineWidgetAssets(html);
+  const inlined = inlineWidgetAssets(html, ASSETS_DIR, logger);
   logger.info(
     { widgetId, originalLength: html.length, inlinedLength: inlined.length },
-    'Pre-inlined widget HTML'
+    'Inlined widget HTML'
   );
   return inlined;
 }
 
-function preInlineWidgets(widgetIds: string[]) {
-  for (const id of widgetIds) {
-    const html = buildInlinedHtml(id);
-    if (html) {
-      inlinedHtmlCache.set(id, html);
-    }
+function getInlinedHtml(widgetId: string): string {
+  const cached = inlinedHtmlCache.get(widgetId);
+  if (cached) {
+    return cached;
   }
+  const html = buildInlinedHtml(widgetId);
+  if (!html) {
+    throw new Error(
+      `No built assets for widget "${widgetId}" in ${ASSETS_DIR}. ` +
+        'In dev, the watch build from "npm run dev" produces them a few seconds after startup; ' +
+        'otherwise run "npm run build:widgets".'
+    );
+  }
+  inlinedHtmlCache.set(widgetId, html);
+  return html;
+}
+
+/**
+ * Watch built assets so inlined HTML is refreshed whenever the widget watch
+ * build (`vite build --watch`, part of `npm run dev`) emits new files. The
+ * assets directory may not exist yet on first startup — retry until it does.
+ */
+function watchAssetsForInlining(widgetIds: string[]) {
+  if (!fs.existsSync(ASSETS_DIR)) {
+    setTimeout(() => watchAssetsForInlining(widgetIds), 2000).unref();
+    return;
+  }
+
+  fs.watch(ASSETS_DIR, (eventType, filename) => {
+    if (filename?.endsWith('.html')) {
+      const widgetId = filename.replace('.html', '');
+      if (widgetIds.includes(widgetId)) {
+        logger.info({ widgetId, eventType }, 'Asset changed, re-inlining');
+        const html = buildInlinedHtml(widgetId);
+        if (html) {
+          inlinedHtmlCache.set(widgetId, html);
+        } else {
+          inlinedHtmlCache.delete(widgetId);
+        }
+      }
+    }
+  });
+  logger.info('Watching assets directory for rebuild changes');
 }
 
 /**
@@ -150,85 +203,6 @@ async function readWidgetHtml(widgetId: string): Promise<string> {
   return fs.readFileSync(htmlPath, 'utf-8');
 }
 
-function inlineWidgetAssets(html: string): string {
-  logger.debug({ htmlLength: html.length }, 'Inlining widget assets');
-  let nextHtml = html;
-  const scripts = Array.from(
-    html.matchAll(
-      /<script[^>]*type="module"[^>]*src="([^"]+)"[^>]*><\/script>/g
-    )
-  );
-  logger.debug(
-    { scriptMatches: scripts.length },
-    'Found script tags to inline'
-  );
-  for (const match of scripts) {
-    const src = match[1];
-    const filename = path.basename(src.split('?')[0]);
-    const assetPath = path.join(ASSETS_DIR, filename);
-    logger.debug(
-      { src, filename, assetPath, exists: fs.existsSync(assetPath) },
-      'Processing script'
-    );
-    if (!fs.existsSync(assetPath)) {
-      logger.warn(
-        { assetPath },
-        'Inline asset missing, leaving script tag as-is'
-      );
-      continue;
-    }
-    const js = fs.readFileSync(assetPath);
-    const b64 = js.toString('base64');
-    const inlineTag = `<script type="module" src="data:text/javascript;base64,${b64}"></script>`;
-    nextHtml = nextHtml.replace(match[0], () => inlineTag);
-    logger.debug({ newLength: nextHtml.length }, 'JS inlined');
-  }
-
-  const styles = Array.from(
-    html.matchAll(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g)
-  );
-  for (const match of styles) {
-    const href = match[1];
-    const filename = path.basename(href.split('?')[0]);
-    const assetPath = path.join(ASSETS_DIR, filename);
-    if (!fs.existsSync(assetPath)) {
-      logger.warn(
-        { assetPath },
-        'Inline asset missing, leaving style tag as-is'
-      );
-      continue;
-    }
-
-    const css = fs.readFileSync(assetPath, 'utf-8');
-    const inlineTag = `<style>${css}</style>`;
-    nextHtml = nextHtml.replace(match[0], () => inlineTag);
-    logger.debug({ newLength: nextHtml.length }, 'CSS inlined');
-  }
-
-  nextHtml = nextHtml
-    .replace(/<link[^>]*rel="modulepreload"[^>]*>/g, '')
-    .replace(/<link[^>]*rel="preload"[^>]*as="style"[^>]*>/g, '');
-
-  if (INLINE_DEV_MODE) {
-    // Inject Google Fonts to replace the @fontsource @font-face rules stripped above.
-    // The host proxies these through its asset proxy so they load in the sandboxed iframe.
-    const googleFontsLink =
-      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap">';
-    nextHtml = nextHtml.replace('</head>', `${googleFontsLink}\n</head>`);
-    logger.debug('Injected Google Fonts link for inline mode');
-  }
-
-  logger.debug(
-    {
-      finalLength: nextHtml.length,
-      hasLocalhost: nextHtml.includes('localhost'),
-    },
-    'Inlining complete'
-  );
-
-  return nextHtml;
-}
-
 /**
  * Create an MCP server instance with echo tool
  */
@@ -247,37 +221,50 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
     resourceUri,
     resourceUri,
     { mimeType: RESOURCE_MIME_TYPE },
-    async () => {
+    async (_uri, extra) => {
       serverLogger.debug({ resourceUri }, 'Resource callback called');
       const widgetId = resourceUri.replace('ui://', '');
+      // ext-apps types this callback against the v1 SDK; the v2 runtime
+      // supplies ServerContext, so bridge the callback type here.
+      const serverContext = extra as unknown as ServerContext;
+      const clientInfo = getClientIdentity(serverContext);
       try {
-        const html = await readWidgetHtml(widgetId);
-        const devWidgetOrigin = `http://localhost:${WIDGET_PORT}`;
-        const devWidgetOriginAlt = `http://127.0.0.1:${WIDGET_PORT}`;
-        const baseUrlOrigin = new URL(BASE_URL || devWidgetOrigin).origin;
+        // Inlined HTML works in every host; the dev-server module graph
+        // (with HMR) only works in hosts that load external origins from the
+        // resource CSP. Unidentified clients get the safe inlined bundle.
+        const useInline =
+          INLINE_DEV_MODE ||
+          (IS_DEV &&
+            shouldInlineWidgetHtml({
+              clientInfo,
+              inlineClients: WIDGET_INLINE_CLIENTS,
+            }));
 
-        const resourceDomains: string[] = INLINE_DEV_MODE
-          ? []
-          : [baseUrlOrigin];
+        const resourceDomains: string[] = [];
         const connectDomains: string[] = [];
+        let finalHtml: string;
 
-        if (NODE_ENV === 'development' && !INLINE_DEV_MODE) {
-          resourceDomains.push(devWidgetOrigin, devWidgetOriginAlt);
-          connectDomains.push(
-            devWidgetOrigin,
-            devWidgetOriginAlt,
-            devWidgetOrigin.replace('http://', 'ws://'),
-            devWidgetOriginAlt.replace('http://', 'ws://')
-          );
-        }
-
-        if (INLINE_DEV_MODE) {
-          // Google Fonts — needed in inline dev mode where @fontsource local fonts
-          // can't load in sandboxed iframes. Remove if you self-host fonts.
-          resourceDomains.push(
-            'https://fonts.googleapis.com',
-            'https://fonts.gstatic.com'
-          );
+        if (useInline) {
+          finalHtml = getInlinedHtml(widgetId);
+          // Inlining swaps local @fontsource fonts for Google Fonts.
+          // Remove if you self-host fonts.
+          resourceDomains.push(...GOOGLE_FONTS_DOMAINS);
+        } else {
+          finalHtml = await readWidgetHtml(widgetId);
+          const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
+          resourceDomains.push(widgetOrigin.origin);
+          if (IS_DEV) {
+            // Vite dev server: allow module fetches plus the HMR websocket
+            connectDomains.push(widgetOrigin.origin, widgetOrigin.wsOrigin);
+            if (widgetOrigin.isLocalhost) {
+              const altOrigin = `http://127.0.0.1:${WIDGET_PORT}`;
+              resourceDomains.push(altOrigin);
+              connectDomains.push(
+                altOrigin,
+                altOrigin.replace('http://', 'ws://')
+              );
+            }
+          }
         }
 
         const cspMeta =
@@ -293,14 +280,9 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
             : undefined;
 
         serverLogger.info(
-          { cspMeta },
-          'Constructed CSP meta for widget resource'
+          { resourceUri, widgetId, clientInfo, useInline, cspMeta },
+          'Widget resource loaded'
         );
-        serverLogger.info({ resourceUri, widgetId }, 'Widget resource loaded');
-
-        const finalHtml = INLINE_DEV_MODE
-          ? (inlinedHtmlCache.get(widgetId) ?? inlineWidgetAssets(html))
-          : html;
 
         return {
           contents: [
@@ -436,25 +418,11 @@ async function main() {
 
   const widgetIds = [ECHO_WIDGET.id];
 
-  if (INLINE_DEV_MODE) {
-    preInlineWidgets(widgetIds);
-
-    // Watch for rebuilds from widget watch mode
-    if (fs.existsSync(ASSETS_DIR)) {
-      fs.watch(ASSETS_DIR, (eventType, filename) => {
-        if (filename?.endsWith('.html')) {
-          const widgetId = filename.replace('.html', '');
-          if (widgetIds.includes(widgetId)) {
-            logger.info({ widgetId, eventType }, 'Asset changed, re-inlining');
-            const html = buildInlinedHtml(widgetId);
-            if (html) {
-              inlinedHtmlCache.set(widgetId, html);
-            }
-          }
-        }
-      });
-      logger.info('Watching assets directory for rebuild changes');
-    }
+  // Inlined HTML can be requested per-client in dev (and always when
+  // INLINE_DEV_MODE forces it), so keep the inline cache fresh as the
+  // widget watch build emits new assets.
+  if (IS_DEV || INLINE_DEV_MODE) {
+    watchAssetsForInlining(widgetIds);
   }
 
   const app = express();

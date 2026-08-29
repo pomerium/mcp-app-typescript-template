@@ -64,10 +64,13 @@ npm install
 npm run dev
 ```
 
-This starts both the MCP server and widget dev server:
+This starts everything you need — no manual build step:
 
 - **MCP Server**: `http://localhost:8080`
-- **Widget Assets**: `http://localhost:4444`
+- **Widget dev server** (live modules + HMR): `http://localhost:4444`
+- **Background watch build**: keeps `assets/` fresh so hosts that need self-contained HTML (like Claude.ai) always get an up-to-date inlined widget
+
+The server picks the right widget HTML per request: hosts that can load external assets get live dev modules with hot module replacement, and hosts that can't (Claude.ai, plus any client that doesn't identify itself) automatically get fully inlined HTML rebuilt on every file change. See [Inline Widget Assets](#inline-widget-assets).
 
 > **Note:** The MCP server is a backend service. To test it, follow the host connection steps below (ChatGPT example) or use `npm run inspect` for local testing.
 
@@ -77,42 +80,24 @@ You should see output indicating both servers are running successfully:
 ❯ npm run dev
 
 > mcp-app-typescript-template@1.0.0 dev
-> concurrently "npm run dev:server" "npm run dev:widgets"
+> concurrently -n server,widgets,build "npm run dev:server" "npm run dev:widgets" "npm run dev:widgets:build"
 
-[1]
-[1] > mcp-app-typescript-template@1.0.0 dev:widgets
-[1] > npm run dev --workspace=widgets
-[1]
-[0]
-[0] > mcp-app-typescript-template@1.0.0 dev:server
-[0] > npm run dev --workspace=server
-[0]
-[1]
-[1] > mcp-app-widgets@1.0.0 dev
-[1] > vite
-[1]
-[0]
-[0] > mcp-app-server@1.0.0 dev
-[0] > tsx watch src/server.ts
-[0]
-[1]
-[1] Found 1 widget(s):
-[1]   - echo
-[1]
-[1]
-[1]   VITE v6.4.1  ready in 151 ms
-[1]
-[1]   ➜  Local:   http://localhost:4444/
-[1]   ➜  Network: use --host to expose
-[0] [12:45:12] INFO: Starting MCP App Template server
-[0]     port: 8080
-[0]     nodeEnv: "development"
-[0]     logLevel: "info"
-[0]     assetsDir: "/Users/nicktaylor/dev/oss/mcp-app-typescript-template/assets"
-[0] [12:45:12] INFO: Server started successfully
-[0]     port: 8080
-[0]     mcpEndpoint: "http://localhost:8080/mcp"
-[0]     healthEndpoint: "http://localhost:8080/health"
+[widgets] > vite
+[server] > tsx watch src/server.ts
+[build] > vite build --watch
+
+[widgets] Found 1 widget(s):
+[widgets]   - echo
+[widgets]
+[widgets]   VITE v8.2.1  ready in 310 ms
+[widgets]   ➜  Local:   http://localhost:4444/
+[build] ✓ 1936 modules transformed.
+[server] [12:45:12] INFO: Starting MCP App Template server
+[server]     port: 8080
+[server]     nodeEnv: "development"
+[server] [12:45:12] INFO: Server started successfully
+[server]     mcpEndpoint: "http://localhost:8080/mcp"
+[server]     healthEndpoint: "http://localhost:8080/health"
 ```
 
 ### Connect to a Host (ChatGPT example)
@@ -166,7 +151,26 @@ Look for the **Port Forward Status** section showing:
 
 The tunnel stays active as long as the SSH session is running.
 
+**Claude.ai:** the same tunnel works out of the box — add the connector URL in Claude.ai settings. Claude.ai can't load widget assets from an external dev server, so the template automatically serves it fully inlined widget HTML, rebuilt on every file change (no HMR, but no manual build step either).
+
 **Other hosts:** Claude Desktop, VS Code, Goose, and other MCP Apps hosts follow the same pattern—add a connector to your `/mcp` endpoint and refresh after changes.
+
+### Optional: Tunnel the Widget Dev Server (HMR through the tunnel)
+
+Hosts that honor the resource CSP (e.g. ChatGPT in dev mode) can load live widget modules — with hot module replacement — through a second tunnel pointed at the widget dev server:
+
+```bash
+# Second terminal: tunnel the widget dev server (port 4444)
+ssh -R 0:localhost:4444 pom.run
+```
+
+Then set `BASE_URL` in `.env` to that tunnel's public URL and restart `npm run dev`:
+
+```bash
+BASE_URL=https://widgets.first-wallaby-240.pom.run
+```
+
+Widget HTML, CSP domains (`https://` + `wss://` for HMR), and Vite's allowed hosts are all derived from `BASE_URL` automatically. Without `BASE_URL`, widget assets are served from `http://localhost:4444`, which only works when the host's iframe runs in a browser on your machine.
 
 ### Success! What's Next?
 
@@ -182,10 +186,11 @@ Now that your app is working, you can:
 ### Development
 
 ```bash
-# Start everything (server + widgets in watch mode)
+# Start everything (server + widget dev server + background watch build)
+# Serves HMR modules to hosts that support them, auto-inlined HTML to the rest
 npm run dev
 
-# Inlined assets mode for testing in Claude.ai or sharing remotely via ssh -R 0 pom.run
+# Force inlined assets for every client (rarely needed — npm run dev handles this per client)
 npm run dev:inline
 
 # Start only MCP server (watch mode)
@@ -575,23 +580,19 @@ This happens automatically via `getUiCapability()` from `@modelcontextprotocol/e
 
 ### Inline Widget Assets
 
-Some hosts (e.g. Claude.ai) require fully self-contained HTML — external `<script>` and `<link>` tags won't load inside their sandboxed iframes. Inline mode is also useful when sharing your work remotely via `ssh -R 0 pom.run`.
+Some hosts (e.g. Claude.ai) require fully self-contained HTML — external `<script>` and `<link>` tags won't load inside their sandboxed iframes.
 
-```bash
-npm run dev:inline
-```
+In development, `npm run dev` handles this **automatically and per request**: the server inspects each MCP request's client identity (`clientInfo` in `_meta`) and serves inlined HTML to clients matching `WIDGET_INLINE_CLIENTS` (default: `claude`) and to clients that don't identify themselves. Everyone else gets live dev-server modules with HMR. A background `vite build --watch` keeps the inlined HTML fresh on every file change — you never run a build manually.
 
-This produces self-contained HTML by:
+Inlined HTML is self-contained:
 
 - **JS/CSS** — inlined as `<script>`/`<style>` blocks
 - **Local images** — inlined as data URIs via Vite's `assetsInlineLimit`
 - **Fonts** — loaded via Google Fonts (the required domains `fonts.googleapis.com` and `fonts.gstatic.com` are automatically added to `resourceDomains` in the CSP)
 
-The widget build runs in watch mode so file changes are automatically rebuilt.
+To force inlining for every client regardless of identity, run `npm run dev:inline` (sets `INLINE_DEV_MODE=true`). To change which clients are inlined, set `WIDGET_INLINE_CLIENTS` (comma-separated, case-insensitive substring match against the client's name/title). The server logs each widget request's `clientInfo` and the chosen mode, so it's easy to see what a host identifies as.
 
-> **When is inline mode needed?** Only when using `ssh -R 0 pom.run` to tunnel your local server. If you self-host tunneling, you can create a public route in [Pomerium](https://www.pomerium.com/) for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains` in the CSP metadata.
->
-> Inline mode is not needed in production — once deployed to a public URL, hosts fetch widget assets directly via normal URLs.
+> Inlining is not used in production — once widget assets are deployed to a public URL (`BASE_URL`), hosts fetch them directly via normal URLs.
 
 ### Loading External Resources (Images, APIs, etc.)
 
@@ -720,10 +721,16 @@ LOG_LEVEL=info          # fatal, error, warn, info, debug, trace
 # CORS (development)
 CORS_ORIGIN=*
 
-# Asset Base URL (for CDN)
+# Public base URL for widget assets
+# Dev: a tunnel to the widget dev server (enables HMR through hosts that load external assets)
+# Production: your CDN/static host (required)
 # BASE_URL=https://cdn.example.com/assets
 
-# Local dev only: inline JS/CSS + images, fonts via Google Fonts (npm run dev:inline)
+# Clients that get fully inlined widget HTML in dev (comma-separated substring
+# match on client name/title; unidentified clients are always inlined)
+# WIDGET_INLINE_CLIENTS=claude
+
+# Force inlined widget HTML for every client (npm run dev:inline sets this)
 # INLINE_DEV_MODE=true
 ```
 
