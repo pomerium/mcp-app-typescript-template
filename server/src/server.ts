@@ -224,12 +224,20 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
     version: '1.0.0',
   });
 
+  // ext-apps 1.x is typed against the v1 SDK; bridge the v2 McpServer once
+  // here. Only registerTool/registerResource are called, and those are
+  // call-compatible at runtime. Drop this when ext-apps targets the v2 SDK.
+  const extAppsServer = server as unknown as Parameters<
+    typeof registerAppTool
+  >[0] &
+    Parameters<typeof registerAppResource>[0];
+
   const serverLogger = logger.child({ protocolEra });
 
   const resourceUri = ECHO_WIDGET.uri;
 
   registerAppResource(
-    server as unknown as Parameters<typeof registerAppResource>[0],
+    extAppsServer,
     resourceUri,
     resourceUri,
     { mimeType: RESOURCE_MIME_TYPE },
@@ -336,7 +344,7 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
   );
 
   registerAppTool(
-    server as unknown as Parameters<typeof registerAppTool>[0],
+    extAppsServer,
     'echo',
     {
       title: 'Echo',
