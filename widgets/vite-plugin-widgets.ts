@@ -11,6 +11,19 @@ interface WidgetEntry {
 }
 
 /**
+ * Public base URL widget assets are served from. BASE_URL covers both a
+ * production CDN and a dev tunnel to the widget dev server (e.g. an
+ * `ssh -R 0 pom.run` tunnel to port 4444); localhost is the fallback.
+ */
+function resolvePublicBaseUrl(): string {
+  const widgetPort = process.env.WIDGET_PORT || '4444';
+  const defaultBaseUrl = `http://localhost:${widgetPort}`;
+  const candidate = process.env.BASE_URL?.trim() ?? '';
+  const baseUrl = candidate.length > 0 ? candidate : defaultBaseUrl;
+  return baseUrl.replace(/\/+$/, '') || defaultBaseUrl;
+}
+
+/**
  * Vite plugin that auto-discovers widgets and builds them separately
  * Widgets must include mounting code at the bottom of their files
  */
@@ -184,8 +197,7 @@ import ${JSON.stringify(widgetPath)};`,
 
         if (!widget) return next();
 
-        const widgetPort = process.env.WIDGET_PORT || '4444';
-        const baseUrl = `http://localhost:${widgetPort}`;
+        const baseUrl = resolvePublicBaseUrl();
 
         const html = `<!doctype html>
 <html>
@@ -237,12 +249,7 @@ import ${JSON.stringify(widgetPath)};`,
           console.log(`  ${widget.name}.css → ${widget.name}-${cssHash}.css`);
         }
 
-        const widgetPort = process.env.WIDGET_PORT || '4444';
-        const defaultBaseUrl = `http://localhost:${widgetPort}`;
-        const baseUrlCandidate = process.env.BASE_URL?.trim() ?? '';
-        const baseUrlRaw =
-          baseUrlCandidate.length > 0 ? baseUrlCandidate : defaultBaseUrl;
-        const baseUrl = baseUrlRaw.replace(/\/+$/, '') || defaultBaseUrl;
+        const baseUrl = resolvePublicBaseUrl();
 
         const html = `<!doctype html>
 <html>
