@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { config } from 'dotenv';
+import pkg from '../package.json' with { type: 'json' };
 import pino from 'pino';
 import pinoHttp from 'pino-http';
 import {
@@ -220,8 +221,8 @@ async function readWidgetHtml(widgetId: string): Promise<string> {
  */
 function createMcpServer(protocolEra: ProtocolEra): McpServer {
   const server = new McpServer({
-    name: 'mcp-app-template',
-    version: '1.0.0',
+    name: pkg.name,
+    version: pkg.version,
   });
 
   // ext-apps 1.x is typed against the v1 SDK; bridge the v2 McpServer once
