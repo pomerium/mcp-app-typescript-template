@@ -68,8 +68,8 @@ export default defineConfig(({ mode, command }) => {
       },
       ...(tunneled
         ? {
-            // Default `localhost` binds [::1] only. Pomerium's reverse tunnel
-            // connects to 127.0.0.1:4444 and 503s without an IPv4 listener.
+            // Default `localhost` binds [::1] only. Reverse tunnels typically
+            // connect to 127.0.0.1:4444 and 503 if there is no IPv4 listener.
             host: true,
             allowedHosts: [publicUrl.hostname],
             hmr: {
