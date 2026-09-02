@@ -68,8 +68,8 @@ export default defineConfig(({ mode, command }) => {
       },
       ...(tunneled
         ? {
-            // Default `localhost` binds [::1] only. Reverse tunnels typically
-            // connect to 127.0.0.1:4444 and 503 if there is no IPv4 listener.
+            // Default `localhost` can bind [::1] only. Listen on all
+            // addresses so 127.0.0.1 works too.
             host: true,
             allowedHosts: [publicUrl.hostname],
             hmr: {
