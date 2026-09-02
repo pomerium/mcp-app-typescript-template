@@ -189,20 +189,6 @@ import ${JSON.stringify(widgetPath)};`,
 
         const url = req.url.split('?')[0];
 
-        // Health checks and people opening the tunnel origin hit `/`.
-        // There is no root app; 404 here makes the UI route look down.
-        if (url === '/' || url === '/health') {
-          const names = widgets.map((widget) => widget.name);
-          res.statusCode = 200;
-          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-          res.end(
-            url === '/health'
-              ? 'ok\n'
-              : `widgets\n${names.map((name) => `/${name}.html`).join('\n')}\n`
-          );
-          return;
-        }
-
         const htmlMatch = url.match(/^\/([\w-]+)(?:\.html)?$/);
         if (!htmlMatch) return next();
 
