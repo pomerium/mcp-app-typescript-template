@@ -68,6 +68,9 @@ export default defineConfig(({ mode, command }) => {
       },
       ...(tunneled
         ? {
+            // Default `localhost` can bind [::1] only. Listen on all
+            // addresses so 127.0.0.1 works too.
+            host: true,
             allowedHosts: [publicUrl.hostname],
             hmr: {
               protocol: publicUrl.protocol === 'https:' ? 'wss' : 'ws',
