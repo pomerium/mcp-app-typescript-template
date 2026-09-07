@@ -20,7 +20,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.35.0",
+    "lucide-react": "^1.41.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwind-merge": "^3.5.0",
@@ -34,17 +34,17 @@
     "@storybook/react-vite": "^10.5.10",
     "@tailwindcss/vite": "^4.2.4",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.6",
+    "@testing-library/user-event": "^14.6.7",
     "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.5",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/coverage-v8": "^5.0.0",
     "mcp-app-server": "*",
     "jsdom": "^30.0.1",
     "serve": "^14.2.6",
     "storybook": "^10.2.10",
     "tailwindcss": "^4.1.18",
     "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }
