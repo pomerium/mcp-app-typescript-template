@@ -99,3 +99,4 @@ See README's "Troubleshooting" section for standard fixes (widget not loading, b
 - Widget build (`npm run build:widgets`) is only needed for production, not local dev
 - MCP HTTP handling is stateless — each request gets a fresh server instance, no session affinity
 - Node.js 24+ is required for ES2023 features and native type stripping
+- Two TypeScript compilers are installed side by side: `typescript` is aliased to the TS6-compatible package for `typescript-eslint` (which doesn't support TS7 yet — see README's "Why Two TypeScript Compilers?"), while `@typescript/native` (aliased to real TS7) provides the `tsc` binary used for builds/type-checking. If either alias is edited, delete `package-lock.json` before `npm install` so both fully re-resolve.
