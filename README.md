@@ -171,6 +171,55 @@ BASE_URL=https://widgets.first-wallaby-240.pom.run
 
 Widget HTML, CSP domains (`https://` + `wss://` for HMR), and Vite's allowed hosts are all derived from `BASE_URL` automatically. Without `BASE_URL`, widget assets are served from `http://localhost:4444`, which only works when the host's iframe runs in a browser on your machine and is not itself served over https (the sandbox CSP upgrades insecure requests). If you can't run a tunnel, `npm run build` and point `BASE_URL` at any static host that serves `assets/`.
 
+#### The widget tunnel must pass websockets
+
+Vite's HMR client connects back over a websocket (`wss://<widget-tunnel>/?token=...`). If the tunnel or proxy in front of port 4444 drops websocket upgrades, modules still load and the widget still renders, but edits stop showing up until you re-invoke the tool. There's no error in the chat, so check the widget page's console for `[vite] connected.` if hot reload seems dead.
+
+cloudflared quick tunnels and `pom.run` pass websockets by default. If you run your own Pomerium and tunnel through it with `ssh -R`, the widget route needs `allow_websockets: true`. Two routes cover the whole dev setup, one for the MCP server and one for the widget dev server:
+
+```yaml
+routes:
+  # MCP server (port 8080). Behind Pomerium's MCP OAuth flow; hosts such as
+  # claude.ai and ChatGPT authenticate through it.
+  - from: https://mcp-dev.example.com
+    to: http://localhost:8080
+    mcp:
+      server: {}
+    policy:
+      - allow:
+          and:
+            - email:
+                in:
+                  - you@example.com
+    upstream_tunnel:
+      ssh_policy:
+        # Who can open the reverse tunnel that backs this route
+        - allow:
+            and:
+              - email:
+                  in:
+                    - you@example.com
+
+  # Widget dev server (port 4444). No `mcp:` block: this is fetched by the
+  # host's sandbox iframe and by ChatGPT's server-side fetcher, neither of
+  # which carries a Pomerium session, so it has to be publicly readable.
+  # upstream_tunnel.ssh_policy still restricts who can open the tunnel.
+  - from: https://widgets-dev.example.com
+    to: http://localhost:4444
+    allow_public_unauthenticated_access: true
+    # Required for Vite HMR in development.
+    allow_websockets: true
+    upstream_tunnel:
+      ssh_policy:
+        - allow:
+            and:
+              - email:
+                  in:
+                    - you@example.com
+```
+
+Then `ssh -R 0:localhost:8080 <your-pomerium-ssh-host>` and `ssh -R 0:localhost:4444 <your-pomerium-ssh-host>` back the two routes, and `BASE_URL=https://widgets-dev.example.com`.
+
 ### Success! What's Next?
 
 Now that your app is working, you can:
