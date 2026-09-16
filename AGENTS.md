@@ -270,7 +270,7 @@ Verified against claude.ai (Sept 2026, see `docs/no-build-dev-investigation.md`)
 
 Edit loop: Vite pushes changed modules over the websocket and React Fast Refresh swaps them in place, in every host, with no tool re-invocation.
 
-If you self-host tunneling, you can create a public route in Pomerium for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains`.
+If you self-host tunneling, you can create a public route in Pomerium for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains`. Whatever fronts the widget dev server must pass websocket upgrades or HMR silently stops working (modules still load); on a Pomerium route that is `allow_websockets: true`. The README's tunnel section has a two-route example.
 
 ### External Resources & CSP
 
