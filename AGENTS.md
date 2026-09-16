@@ -15,6 +15,7 @@ This is an MCP Apps template built with the MCP Apps spec and Model Context Prot
 | `npm run inspect`                                             | MCP Inspector against the local server                        |
 | `npm run build` / `build:widgets` / `build:server`            | Production builds                                             |
 | `npm test` / `test:server` / `test:widgets` / `test:coverage` | Vitest suites                                                 |
+| `npm run test:e2e`                                            | Playwright suite against a production build (Chromium only)   |
 | `npm run lint` / `format` / `format:check` / `type-check`     | Code quality                                                  |
 | `npm run storybook` / `build:storybook`                       | Storybook                                                     |
 
@@ -61,6 +62,13 @@ Dev-serving mechanics (`BASE_URL`, tunnels, HMR over websockets) are documented 
 - `widgets/vite-plugin-widgets.ts` - widget auto-discovery/build plugin
 - `assets/` - generated widget bundles (gitignored, never edit by hand)
 
+### End-to-End
+
+- `playwright.config.ts` - webServer config: production server + static widget host + `e2e/host`, all on non-default ports
+- `e2e/transport.spec.ts` - real HTTP requests against the built server (no mocked handler)
+- `e2e/widget.spec.ts` - drives the real Echo widget in a sandboxed iframe through `e2e/host`
+- `e2e/host/host.entry.ts` - a minimal `AppBridge`-based host (bundled by `npm run build:e2e-host`, esbuild); not part of either workspace
+
 ## Coding Style & Conventions
 
 - TypeScript strict mode; prefer explicit types at module boundaries
@@ -71,6 +79,7 @@ Dev-serving mechanics (`BASE_URL`, tunnels, HMR over websockets) are documented 
 ## Testing Guidelines
 
 - Vitest for both workspaces; keep widget specs as `.test.ts[x]` under Testing Library, server specs under `server/tests/`
+- `npm run test:e2e` (Playwright, Chromium only) runs against a production build and is additive to the Vitest suites, not a replacement — see README's "End-to-End Testing" section
 - For manual host testing (MCP Inspector, ChatGPT/Claude.ai via a Pomerium tunnel), follow README's "Testing Your App" section
 
 ## Commit & Pull Request Guidelines

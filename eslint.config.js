@@ -51,4 +51,12 @@ export default [
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
+  {
+    files: ['**/*.mjs', '**/*.cjs'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
 ];

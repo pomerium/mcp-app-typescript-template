@@ -276,6 +276,35 @@ npm run test:widgets
 npm run test:coverage
 ```
 
+### End-to-End Testing
+
+```bash
+# Build (widgets + server) then run the Playwright suite against the production build
+npm run test:e2e
+```
+
+`npm run test:e2e` covers what the Vitest suites can't: real HTTP requests
+against the built server (`server/dist/server.js`, `NODE_ENV=production`) and
+the real Echo widget rendered by ext-apps 2's `App`, in a real sandboxed
+iframe, driven by a small test host built on `AppBridge` (from
+`@modelcontextprotocol/ext-apps/app-bridge`) instead of a mocked `App`. It
+runs on Chromium only, against non-default ports (8390/4390/5390) so it never
+collides with a local `npm run dev`, and needs Chromium installed once via
+`npx playwright install --with-deps chromium`.
+
+- `e2e/transport.spec.ts` — plain HTTP: 2026-07-28 `tools/list`/`tools/call`
+  with no handshake, `structuredContent` gated on the MCP Apps capability,
+  `resources/read ui://echo` CSP metadata, and the 2025-era `initialize`
+  fallback.
+- `e2e/widget.spec.ts` — `e2e/host/` is a minimal host page that connects a
+  real MCP client, loads the `ui://echo` resource into a sandboxed iframe,
+  and wires up `AppBridge` the way a real host (MCPJam, Claude.ai, ChatGPT)
+  would. The spec drives every widget action — `callServerTool`,
+  `updateModelContext`, `sendMessage`, `requestDisplayMode`, `openLink`,
+  theme — and asserts the widget's own iframe logs no console errors.
+
+The Vitest suites (`npm test`) are unrelated and untouched by this suite.
+
 ### Code Quality
 
 ```bash

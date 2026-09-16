@@ -34,6 +34,11 @@ coverage/
 *.lcov
 lib-cov
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
 # Environment
 .env
 .env.*
