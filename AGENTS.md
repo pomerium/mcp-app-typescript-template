@@ -1,527 +1,101 @@
 # Repository Guidelines
 
-This file provides guidance to AI assistants (including Claude Code at claude.ai/code) when working with code in this repository.
+Guidance for AI assistants working in this repo. This file covers operational conventions and agent-specific notes; for setup walkthroughs, full code samples, and narrative explanations (dev serving, App API, CSP, deployment), see README.md — that is the authoritative source and this file avoids restating it.
 
 ## Project Overview
 
-This is an MCP Apps template built with the MCP Apps spec and Model Context Protocol (MCP). The architecture consists of:
+This is an MCP Apps template built with the MCP Apps spec and Model Context Protocol (MCP). npm workspaces split the codebase: `server/` is the MCP backend (Node.js + Express), `widgets/` houses React widgets rendered in host iframes via the MCP Apps `App` API. Vite auto-discovers and builds widgets with content-hashed assets.
 
-- **MCP Server** (Node.js + Express): Handles tool registration, execution, and widget resource serving
-- **MCP App Views**: Interactive components rendered in host iframes that communicate via the MCP Apps `App` API
-- **Widget Build System**: Custom Vite-based parallel build pipeline with content hashing and auto-discovery
+## Commands
 
-npm workspaces split the codebase: `server/` is the MCP backend and `widgets/` houses React widgets.
+| Command                                                       | Purpose                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
+| `npm run dev`                                                 | MCP server + widget dev server, no build step, HMR everywhere |
+| `npm run dev:server` / `npm run dev:widgets`                  | Start just one half, in watch mode                            |
+| `npm run inspect`                                             | MCP Inspector against the local server                        |
+| `npm run build` / `build:widgets` / `build:server`            | Production builds                                             |
+| `npm test` / `test:server` / `test:widgets` / `test:coverage` | Vitest suites                                                 |
+| `npm run lint` / `format` / `format:check` / `type-check`     | Code quality                                                  |
+| `npm run storybook` / `build:storybook`                       | Storybook                                                     |
 
-## Development Commands
-
-### Quick Start
-
-**Fastest way to get up and running:**
-
-```bash
-npm install
-npm run dev
-```
-
-This starts both the MCP server (`http://localhost:8080`) and widget dev server (`http://localhost:4444`).
-
-### All Available Commands
-
-**Development:**
-
-```bash
-npm run dev               # Start everything (MCP server + widget dev server); no build step
-npm run dev:server        # Start only MCP server (watch mode)
-npm run dev:widgets       # Start only widget dev server
-npm run inspect           # Test with MCP Inspector
-```
-
-`npm run dev` has no build step: every client gets an HTML shell that loads live Vite dev-server modules with HMR (see "Widget HTML in Development" below). The server reads the repo-root `.env` (`dotenv` is pointed at `ROOT_DIR/.env`, since the process cwd is `server/`).
-
-**Building:**
-
-```bash
-npm run build         # Full production build (widgets + server)
-npm run build:widgets # Build only widgets
-npm run build:server  # Build only server
-```
-
-**Testing:**
-
-```bash
-npm test              # Run all tests
-npm run test:server   # Run server tests only
-npm run test:widgets  # Run widget tests only
-npm run test:coverage # Run tests with coverage
-```
-
-**Code Quality:**
-
-```bash
-npm run lint          # Lint TypeScript files
-npm run format        # Format code with Prettier
-npm run format:check  # Check formatting without modifying
-npm run type-check    # Type check all workspaces
-```
-
-**Storybook:**
-
-```bash
-npm run storybook        # Run Storybook dev server
-npm run build:storybook  # Build Storybook for production
-```
+Dev-serving mechanics (`BASE_URL`, tunnels, HMR over websockets) are documented in README's "How Development Serving Works" — read that before touching the widget resource callback in `server/src/server.ts` or `widgets/vite-plugin-widgets.ts`.
 
 ## Key Architectural Patterns
 
-### MCP Apps Server Usage
+- **MCP Apps server usage** — `McpServer` + `createMcpHandler` with `registerAppResource` / `registerAppTool`; tools bind UI via `_meta.ui.resourceUri`.
+- **Stateless HTTP** — `createMcpHandler` creates a fresh server/transport per request (MCP 2026-07-28). No `Mcp-Session-Id`; older 2025-era requests go through the SDK's stateless fallback. Anything that must survive a request needs to live in tool arguments or an external store.
+- **Widget resource MIME type** — must be exactly `text/html;profile=mcp-app`:
 
-This template uses `McpServer` from `@modelcontextprotocol/server` and `createMcpHandler` with the MCP Apps helpers:
+  ```typescript
+  mimeType: 'text/html;profile=mcp-app'; // CRITICAL - must be exact
+  ```
 
-- Register UI resources with `registerAppResource`
-- Register tools with `registerAppTool`
-- Include `_meta.ui.resourceUri` on tools to bind a UI resource
+- **Tool response shape**:
 
-### Stateless HTTP
+  ```typescript
+  {
+    content: [{ type: 'text', text: 'Human-readable message' }],
+    structuredContent: { /* keep under 4,000 tokens */ },
+  }
+  ```
 
-The `/mcp` endpoint follows the MCP 2026-07-28 stateless transport model:
-
-- `createMcpHandler` creates a fresh server and transport for every request
-- Modern requests carry protocol version, client identity, and capabilities in `_meta`
-- The server does not create, store, or return `Mcp-Session-Id` values
-- Older 2025-era requests are served through the SDK's per-request stateless fallback
-- State that must survive a request must be represented explicitly in tool arguments or an external store
-
-### Widget Resource Registration
-
-Widgets MUST be registered with the exact MIME type `text/html;profile=mcp-app` for MCP Apps hosts to load them:
-
-```typescript
-registerAppResource(
-  server,
-  'ui://my-widget',
-  'ui://my-widget',
-  { mimeType: 'text/html;profile=mcp-app' }, // CRITICAL - must be exact
-  async () => ({
-    contents: [
-      {
-        uri: 'ui://my-widget',
-        mimeType: 'text/html;profile=mcp-app',
-        text: html,
-      },
-    ],
-  })
-);
-```
-
-### Tool Response Structure
-
-All tool responses follow this pattern (UI binding happens in tool metadata):
-
-```typescript
-{
-  content: [{ type: 'text', text: 'Human-readable message' }],
-  structuredContent: {
-    // Data passed to the app via App.ontoolresult
-    // Keep this under 4,000 tokens for performance
-  },
-  // No outputTemplate required; UI linkage lives in tool _meta.ui.resourceUri
-}
-```
-
-### Widget Build System
-
-Vite auto-discovers and builds widgets via a custom plugin:
-
-- Scans `widgets/src/widgets/*.{tsx,jsx}` for widget entry points
-- Widget name comes from the filename (e.g., `echo.tsx` → `echo` widget)
-- **Widgets must include their own mounting code** at the bottom of the file
-- Generates content-hashed assets (e.g., `echo-a1b2c3d4.js`)
-- Creates HTML templates with preload hints that reference hashed assets
-- Both hashed and unhashed filenames are generated for flexibility
-- Widget bundles in `assets/` are generated artifacts; never edit them manually
-
-**Widget folder structure:**
-
-```
-widgets/src/
-  ├── widgets/              # Widget entry points (auto-discovered)
-  │   ├── echo.tsx          # Widget entry - includes mounting code
-  │   └── counter.tsx       # Another widget entry
-  ├── echo/                 # Widget-specific components
-  │   ├── Echo.tsx
-  │   └── Echo.stories.tsx
-  ├── components/           # Shared components (including shadcn/ui)
-  │   └── ui/
-  ├── hooks/                # Shared hooks
-  └── utils/                # Shared utilities
-```
-
-**To add a new widget:**
-
-1. Create `widgets/src/widgets/my-widget.tsx`:
-
-```tsx
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { App } from '@modelcontextprotocol/ext-apps';
-import { useEffect, useState } from 'react';
-
-function MyWidget() {
-  const [toolOutput, setToolOutput] = useState(null);
-
-  useEffect(() => {
-    const app = new App({ name: 'MyWidget', version: '1.0.0' });
-    app.ontoolresult = (result) =>
-      setToolOutput(result.structuredContent ?? null);
-    app.connect();
-  }, []);
-
-  return <div>{JSON.stringify(toolOutput)}</div>;
-}
-
-// Mounting code - required at the bottom of each widget file
-const rootElement = document.getElementById('my-widget-root');
-if (rootElement) {
-  createRoot(rootElement).render(
-    <StrictMode>
-      <MyWidget />
-    </StrictMode>
-  );
-}
-```
-
-2. Add supporting components in `widgets/src/my-widget/` if needed
-3. Widget automatically discovered and built in dev mode
-4. Widget will be available as `ui://my-widget`
-
-### Widget Development Patterns
-
-**`App` API** - Connect to the host and read tool results + context:
-
-```typescript
-const app = new App({ name: 'Echo', version: '1.0.0' });
-app.ontoolresult = (result) => {
-  console.log(result.structuredContent);
-};
-app.onhostcontextchanged = (context) => {
-  console.log(
-    context?.theme,
-    context?.displayMode,
-    context?.containerDimensions
-  );
-};
-await app.connect();
-
-const hostContext = app.getHostContext();
-const theme = hostContext?.theme; // 'light' | 'dark'
-const displayMode = hostContext?.displayMode; // 'inline' | 'pip' | 'fullscreen'
-const safeAreaInsets = hostContext?.safeAreaInsets;
-const containerDimensions = hostContext?.containerDimensions; // { maxHeight, maxWidth, height, width }
-```
-
-**Runtime APIs** - Call tools, open links, send messages, update model context, and toggle display mode:
-
-```typescript
-// Call other tools from the widget
-const result = await app.callServerTool({
-  name: 'echo',
-  arguments: { message: 'Hello' },
-});
-
-// Open an external link via the host
-await app.openLink({ url: 'https://example.com' });
-
-// Send a message to the host chat
-await app.sendMessage({
-  role: 'user',
-  content: [{ type: 'text', text: 'Hello from the widget!' }],
-});
-
-// Push widget state to the model context for future turns
-await app.updateModelContext({
-  content: [{ type: 'text', text: 'Current widget state summary' }],
-  structuredContent: { key: 'value' },
-});
-
-// Toggle display mode (inline, pip, fullscreen)
-const modeResult = await app.requestDisplayMode({ mode: 'fullscreen' });
-// Always use modeResult.mode as the source of truth — the host may deny the request
-```
-
-### Display Modes
-
-Widgets can run in three display modes: `inline` (within chat flow, default), `pip` (floating window), and `fullscreen` (overlay). The current mode is available via `hostContext.displayMode`. Use `app.requestDisplayMode()` to request a change — the host decides whether to honor it.
-
-### Container Dimensions
-
-Hosts provide `containerDimensions` (`maxHeight`, `maxWidth`, `height`, `width`) in the host context so widgets can size themselves responsively. This replaces viewport-based sizing and is especially important in inline mode where the widget shares space with chat content.
-
-### UI Capability Negotiation
-
-UI tools always include their MCP Apps metadata and a text fallback; hosts that do not render MCP Apps can ignore the UI metadata.
-
-### Widget HTML in Development
-
-In development the widget resource callback (`server/src/server.ts`) serves every client the same **dev-server HTML**: a small shell whose module script points at the Vite dev server, fetched from `http://localhost:4444/<widget>.html` (generated by `widgets/vite-plugin-widgets.ts`) and rewritten to the public widget origin. The resource `_meta.ui.csp` declares that origin in `resourceDomains` and `connectDomains` (plus its `ws(s)://` form for the HMR websocket).
-
-The widget origin comes from `BASE_URL` when set (an https tunnel to port 4444, e.g. `cloudflared tunnel --url http://localhost:4444` or a second `ssh -R 0:localhost:4444 pom.run` session — the Vite dev server derives `allowedHosts` and HMR websocket config from it too), otherwise `http://localhost:4444`. Hosted clients (claude.ai, ChatGPT) render widgets inside an https sandbox origin and cannot reach localhost, so `BASE_URL` is required for them; the server logs a warning when an identified client asks for the widget without it.
-
-Verified against claude.ai (Sept 2026, see `docs/no-build-dev-investigation.md`): the host forwards the declared domains to its sandbox proxy (`<hash>.claudemcpcontent.com/mcp_apps?connect-src=...&resource-src=...`), which `document.write()`s the resource HTML into a same-origin child iframe. Static `<script type="module" src>` tags, dynamic `import()`, `fetch` and the Vite HMR websocket all work against the declared origin; undeclared origins are blocked. The old assumption that claude.ai needs inlined HTML (it once used `srcdoc` iframes) no longer holds, which is why there is no per-client switching any more.
-
-Edit loop: Vite pushes changed modules over the websocket and React Fast Refresh swaps them in place, in every host, with no tool re-invocation.
-
-If you self-host tunneling, you can create a public route in Pomerium for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains`. Whatever fronts the widget dev server must pass websocket upgrades or HMR silently stops working (modules still load); on a Pomerium route that is `allow_websockets: true`. The README's tunnel section has a two-route example.
-
-### External Resources & CSP
-
-MCP Apps hosts render widgets in sandboxed iframes with strict CSP. Remote images and other external resources are blocked by default. To allow external domains, declare them in the resource `_meta.ui.csp`:
-
-- `resourceDomains` — allows loading images, fonts, scripts from listed origins
-- `connectDomains` — allows `fetch()`/XHR to listed origins
-- Each domain must be explicitly listed (no wildcards); include redirect targets too
-- Data URIs always work — Vite inlines small imported images (default `assetsInlineLimit` 4 KiB); larger ones are served from the widget origin, which is already declared
-
-### Mock App for Testing & Storybook
-
-`createMockApp()` in `widgets/src/mocks/mock-app.ts` provides a drop-in `AppLike` replacement for the real `App`. It supports all runtime APIs (`callServerTool`, `openLink`, `sendMessage`, `updateModelContext`, `requestDisplayMode`) and exposes `emitToolResult()` / `setHostContext()` for simulating host events in tests and Storybook stories.
-
-### Zod Validation Pattern
-
-All tool inputs are validated using Zod schemas:
-
-1. Define schema in `server/src/types.ts`
-2. Parse inputs in tool handler: `const args = SchemaName.parse(request.params.arguments)`
-3. TypeScript types are auto-inferred via `z.infer<typeof SchemaName>`
-
-This ensures type safety and runtime validation.
+- **Widget build** — Vite scans `widgets/src/widgets/*.{tsx,jsx}`; the filename is the widget id (`echo.tsx` → `ui://echo`); each entry must include its own mounting code. For the full walkthrough, use the `add-widget` / `create-mcp-tool` skills or README's "Adding New Tools" / "Widget Development" sections.
+- **Zod validation** — schemas live in `server/src/types.ts`; handlers call `SchemaName.parse(args)`; types are inferred via `z.infer`.
+- **UI capability negotiation** — tools always carry MCP Apps metadata plus a text fallback; `getUiCapability()` / `clientCanRenderUi()` gate `structuredContent` for hosts that can't render UI, automatically.
 
 ## File Organization
 
-### Server Structure
+### Server
 
-- `server/src/server.ts` - Main server, stateless HTTP handler, and tool registration
+- `server/src/server.ts` - main server, stateless HTTP handler, tool and resource registration
 - `server/src/types.ts` - Zod schemas and TypeScript interfaces
-- `server/tests/*.test.ts` - Vitest specs for tools, validation, and stateless transport behavior
+- `server/tests/*.test.ts` - Vitest specs
 
-### Widget Structure
+### Widgets
 
-- `widgets/src/widgets/{widget-name}.tsx` - Widget entry point (auto-discovered, includes mounting code)
-- `widgets/src/{widget-name}/{Component}.tsx` - Supporting components for the widget
-- `widgets/src/{widget-name}/styles.css` - Component-specific styles
-- `widgets/src/{widget-name}/{Component}.stories.tsx` - Storybook stories
-- `widgets/src/components/` - Shared components (including shadcn/ui)
-- `widgets/src/types/mcp-app.ts` - Lightweight MCP Apps types for UI wiring
-- `widgets/src/mocks/mock-app.ts` - Mock App implementation for tests/stories
-- `widgets/vite-plugin-widgets.ts` - Custom Vite plugin for auto-discovery and building
-
-### Generated Assets
-
-- `assets/` - Built widget bundles (gitignored)
-- Files include both hashed versions (`echo-{hash}.js`) and unhashed (`echo.js`)
-- HTML templates reference the hashed assets for cache busting
+- `widgets/src/widgets/{name}.tsx` - widget entry point (auto-discovered, includes mounting code)
+- `widgets/src/{name}/` - supporting components, styles, stories for that widget
+- `widgets/src/components/` - shared components (incl. shadcn/ui)
+- `widgets/src/types/mcp-app.ts` - `AppLike` types for UI wiring
+- `widgets/src/mocks/mock-app.ts` - `createMockApp()` for tests/Storybook
+- `widgets/vite-plugin-widgets.ts` - widget auto-discovery/build plugin
+- `assets/` - generated widget bundles (gitignored, never edit by hand)
 
 ## Coding Style & Conventions
 
-- TypeScript runs in strict mode; prefer explicit types at module boundaries
-- Keep React components in PascalCase modules (e.g., `Echo.tsx`)
-- Run `npm run lint` to apply ESLint (React, hooks, a11y plugins) and guard import order, unused vars, and hook usage
-- Format with `npm run format`; Prettier defaults to 2-space indentation and double quotes
+- TypeScript strict mode; prefer explicit types at module boundaries
+- React components in PascalCase modules (e.g., `Echo.tsx`)
+- `npm run lint` enforces import order, unused vars, and hook usage (React/hooks/a11y plugins)
+- `npm run format` (Prettier: 2-space indent, double quotes)
 
 ## Testing Guidelines
 
-- Vitest powers all suites. Run `npm test` to cover both workspaces or target `npm run test:server` / `npm run test:widgets` while iterating
-- Each workspace offers `npm run test:coverage`
-- Keep widget specs with Testing Library under `.test.ts[x]` filenames and store server specs in `server/tests/`
-
-### Testing MCP Apps Hosts
-
-#### Local Testing with MCP Inspector
-
-```bash
-# 1. Start server (terminal 1)
-npm run dev:server
-
-# 2. Build widgets (terminal 2)
-npm run build:widgets
-
-# 3. Open inspector
-npm run inspect
-```
-
-The inspector allows testing tool invocations and verifying widget resources without deploying.
-
-#### Connecting from ChatGPT
-
-**Development Testing with Pomerium SSH Tunnel:**
-
-With your project running (`npm run dev`), create a public URL in a new terminal:
-
-```bash
-ssh -R 0 pom.run
-```
-
-**First-time setup:**
-
-1. You'll see a sign-in URL in your terminal:
-
-   ```
-   Please sign in with hosted to continue
-   https://data-plane-us-central1-1.dataplane.pomerium.com/.pomerium/sign_in?user_code=some-code
-   ```
-
-2. Click the link and sign up
-3. Authorize via the Pomerium OAuth flow
-4. The terminal will display your connection details
-
-Look for the **Port Forward Status** section, which shows:
-
-- **Status**: `ACTIVE` (your tunnel is running)
-- **Remote**: `https://template.first-wallaby-240.pom.run` (your public URL)
-- **Local**: `http://localhost:8080` (your local server)
-
-**Add to ChatGPT:**
-
-1. Ensure ChatGPT apps dev mode is enabled in settings
-2. In ChatGPT: Settings → Connectors → Add Connector
-3. Enter your Remote URL + `/mcp`: `https://template.first-wallaby-240.pom.run/mcp`
-4. Add the app to a chat and test with: `echo Hi there!`
-
-The tunnel stays active as long as the SSH session is running.
-
-**Production Setup:**
-
-1. Deploy server or use tunnel service (ngrok, cloudflare tunnel, pomerium, etc.)
-2. In ChatGPT: Settings → Connectors → Add Connector
-3. Enter server URL: `https://your-domain.com/mcp`
-4. After code changes: Settings → Connectors → Your App → Refresh
-
-## Environment Configuration
-
-Key environment variables (create `.env` from `.env.example`):
-
-```bash
-NODE_ENV=development           # Controls logging format
-PORT=8080                      # Server port
-WIDGET_PORT=4444               # Widget dev server port (default: 4444)
-LOG_LEVEL=info                 # Pino log level: fatal, error, warn, info, debug, trace
-CORS_ORIGIN=*                  # CORS origin (set to domain in production)
-BASE_URL=                      # Public widget asset URL: CDN in production, tunnel to the widget dev server in dev
-```
-
-Requirements:
-
-- Node.js 24+ with npm 11+ (consider `corepack enable` to pin versions in CI)
-- When tunneling or redeploying, check `/health` and rerun `npm run inspect` to ensure the MCP manifest is current
-
-## Common Troubleshooting
-
-**Widget not loading in a host:**
-
-- Verify `text/html;profile=mcp-app` MIME type in resource handler
-- Check `assets/` directory exists and contains built files
-- Rebuild widgets: `npm run build:widgets`
-- Restart server and refresh the connector in host settings
-
-**"Widget assets not found" error:**
-
-- Run `npm run build:widgets` before starting the server
-- Check that `assets/` directory was created
-- Verify widget entry points exist in `widgets/src/**/index.{tsx,jsx}`
-
-**Port already in use:**
-
-- Change `PORT` in `.env` file
-- Or kill existing process: `lsof -ti:8080 | xargs kill`
-
-**Type errors:**
-
-- Run `npm run type-check` to see all TypeScript errors across workspaces
-- Both `server/` and `widgets/` have separate `tsconfig.json` files
+- Vitest for both workspaces; keep widget specs as `.test.ts[x]` under Testing Library, server specs under `server/tests/`
+- For manual host testing (MCP Inspector, ChatGPT/Claude.ai via a Pomerium tunnel), follow README's "Testing Your App" section
 
 ## Commit & Pull Request Guidelines
 
-- Use [Conventional Commits](https://www.conventionalcommits.org/) format: `<type>(<scope>): <subject>`
-- Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `style`, `perf`
-- Scope is optional but helpful (e.g. `feat(widgets):`, `fix(server):`, `chore(deps):`)
-- Subject should be concise and imperative; stay under 72 characters
-- Add optional detail in the commit body when the why isn't obvious from the subject
-- Reference issues, note manual test commands, and attach UI screenshots or terminal logs when widgets or tooling shift
-- In pull requests, describe the user impact, flag risks, and mention follow-up tasks so reviewers can confirm MCP behavior quickly
+- [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<scope>): <subject>` (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `style`, `perf`)
+- Imperative subject, under 72 characters; scope optional but helpful (`feat(widgets):`, `fix(server):`)
+- Explain the _why_ in the commit body when it isn't obvious from the subject
+- In PRs: describe user impact, flag risks, note manual test commands, attach screenshots/logs for widget or tooling changes
 
-## Production Deployment
+## Environment & Deployment
 
-### Building for Production
+Env vars, production build/deploy steps, and the Docker workflow are documented in README's "Configuration" and "Production Deployment" sections — treat those as authoritative rather than duplicating them here. One agent-relevant addition: after tunneling or redeploying, hit `/health` and rerun `npm run inspect` to confirm the MCP manifest is current.
 
-```bash
-# Full production build
-npm run build
-```
+## Troubleshooting
 
-This runs:
-
-1. `npm run build:widgets` - Builds optimized widget bundles with content hashing
-2. `npm run build:server` - Compiles TypeScript server code
-
-**Build outputs:**
-
-- `assets/` - Optimized widget bundles (JS/CSS with content hashes)
-- `server/dist/` - Compiled server code
-
-### Manual Deployment
-
-```bash
-npm install
-npm run build
-NODE_ENV=production npm start
-```
-
-The server will:
-
-- Serve MCP on `http://localhost:8080/mcp`
-- Load pre-built widgets from `assets/`
-- Use structured logging (JSON format)
-- Run with production optimizations
-
-### Docker Deployment
-
-```bash
-docker build -f docker/Dockerfile -t mcp-app:latest .
-docker-compose -f docker/docker-compose.yml up -d
-```
-
-### Production Checklist
-
-**Environment Variables:**
-
-- Set `NODE_ENV=production`
-- Configure `CORS_ORIGIN` to your domain (not `*`)
-- Set `LOG_LEVEL=warn` or `error` for production
-- Set `BASE_URL` if using a CDN for widget assets
-
-**Deployment Requirements:**
-
-- **MCP Server:** Must be behind a [Pomerium](https://www.pomerium.com/) route for OAuth and access policies
-- **Widget assets:** Must be publicly accessible — same server, CDN (`BASE_URL`), or static host (Netlify/Vercel)
-- Ensure `assets/` directory is deployed with the server (or served separately via `BASE_URL`)
-- Set up SSL/TLS certificates (most MCP hosts require HTTPS)
-
-**Monitoring:**
-
-- Monitor `/health` endpoint for server status
-- Set up logging aggregation (Pino outputs JSON in production)
-- Configure alerts for errors and performance issues
+See README's "Troubleshooting" section for standard fixes (widget not loading, build failures, port conflicts, stateless HTTP transport notes).
 
 ## Important Notes for AI Assistants
 
-- Always read `server/src/server.ts` to understand current tool implementations before modifying
-- The `_meta.ui.resourceUri` field is critical for UI binding - never omit it
-- UI tools include MCP Apps metadata plus a text fallback for hosts that do not render widgets
+- Always read `server/src/server.ts` to understand current tool implementations before modifying it
+- `_meta.ui.resourceUri` is critical for UI binding — never omit it
 - Widget components accept an `app` prop typed as `AppLike<T>` so the real `App` or `createMockApp()` can be injected
 - Use `containerDimensions.maxHeight` (not viewport height) for responsive widget sizing
-- When adding new App API calls (`openLink`, `sendMessage`, `updateModelContext`), add the method signature to `AppLike` in `widgets/src/types/mcp-app.ts` and the mock in `widgets/src/mocks/mock-app.ts`
+- When adding a new App API call (`openLink`, `sendMessage`, `updateModelContext`, etc.), add its signature to `AppLike` in `widgets/src/types/mcp-app.ts` and the mock in `widgets/src/mocks/mock-app.ts`
 - `npm run dev` has no build step; hosted clients (Claude.ai, ChatGPT) need `BASE_URL` set to an https tunnel of port 4444 to load widgets and get HMR
-- Widget build is separate from server build and only needed for production (`npm run build:widgets`)
-- The `text/html;profile=mcp-app` MIME type is non-negotiable for MCP Apps UI loading
-- MCP HTTP handling is stateless - each request gets a fresh MCP server instance and no session affinity is required
+- Widget build (`npm run build:widgets`) is only needed for production, not local dev
+- MCP HTTP handling is stateless — each request gets a fresh server instance, no session affinity
 - Node.js 24+ is required for ES2023 features and native type stripping
-- Use `npm run inspect` for rapid local testing before connecting to hosts
