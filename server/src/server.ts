@@ -25,12 +25,7 @@ import {
   type WidgetDescriptor,
 } from './types.js';
 import { clientCanRenderUi } from './ui-capability.js';
-import {
-  getClientIdentity,
-  GOOGLE_FONTS_DOMAINS,
-  inlineWidgetAssets,
-  resolveWidgetOrigin,
-} from './widget-html.js';
+import { getClientIdentity, resolveWidgetOrigin } from './widget-html.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
@@ -47,7 +42,6 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const WIDGET_PORT = Number(process.env.WIDGET_PORT || '4444');
 const { BASE_URL = '' } = process.env;
-const INLINE_DEV_MODE = process.env.INLINE_DEV_MODE === 'true';
 const IS_DEV = (process.env.NODE_ENV || 'development') === 'development';
 
 const logger = pino({
@@ -71,75 +65,11 @@ const ECHO_WIDGET: WidgetDescriptor = {
   uri: 'ui://echo',
 };
 
-/** Inlined widget HTML cache — invalidated by the assets watcher on rebuilds */
-const inlinedHtmlCache = new Map<string, string>();
-
-function buildInlinedHtml(widgetId: string): string | null {
-  const htmlPath = path.join(ASSETS_DIR, `${widgetId}.html`);
-  if (!fs.existsSync(htmlPath)) {
-    logger.warn({ htmlPath }, 'Cannot inline: HTML file not found');
-    return null;
-  }
-  const html = fs.readFileSync(htmlPath, 'utf-8');
-  const inlined = inlineWidgetAssets(html, ASSETS_DIR, logger);
-  logger.info(
-    { widgetId, originalLength: html.length, inlinedLength: inlined.length },
-    'Inlined widget HTML'
-  );
-  return inlined;
-}
-
-function getInlinedHtml(widgetId: string): string {
-  const cached = inlinedHtmlCache.get(widgetId);
-  if (cached) {
-    return cached;
-  }
-  const html = buildInlinedHtml(widgetId);
-  if (!html) {
-    throw new Error(
-      `No built assets for widget "${widgetId}" in ${ASSETS_DIR}. ` +
-        'The watch build from "npm run dev:inline" produces them a few seconds after startup; ' +
-        'otherwise run "npm run build:widgets".'
-    );
-  }
-  inlinedHtmlCache.set(widgetId, html);
-  return html;
-}
-
-/**
- * Watch built assets so inlined HTML is refreshed whenever the widget watch
- * build (`vite build --watch`, part of `npm run dev:inline`) emits new files.
- * The assets directory may not exist yet on first startup — retry until it
- * does.
- */
-function watchAssetsForInlining(widgetIds: string[]) {
-  if (!fs.existsSync(ASSETS_DIR)) {
-    setTimeout(() => watchAssetsForInlining(widgetIds), 2000).unref();
-    return;
-  }
-
-  fs.watch(ASSETS_DIR, (eventType, filename) => {
-    if (filename?.endsWith('.html')) {
-      const widgetId = filename.replace('.html', '');
-      if (widgetIds.includes(widgetId)) {
-        logger.info({ widgetId, eventType }, 'Asset changed, re-inlining');
-        const html = buildInlinedHtml(widgetId);
-        if (html) {
-          inlinedHtmlCache.set(widgetId, html);
-        } else {
-          inlinedHtmlCache.delete(widgetId);
-        }
-      }
-    }
-  });
-  logger.info('Watching assets directory for rebuild changes');
-}
-
 /**
  * Read widget HTML - from Vite dev server in development, from assets in production
  */
 async function readWidgetHtml(widgetId: string): Promise<string> {
-  if (IS_DEV && !INLINE_DEV_MODE) {
+  if (IS_DEV) {
     // No fallback to built assets here: `npm run dev` does not build, so a
     // missing dev server is a configuration error worth surfacing.
     const url = `http://localhost:${WIDGET_PORT}/${widgetId}.html`;
@@ -242,42 +172,29 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
         // both claude.ai and ChatGPT honour them, so the dev server origin
         // just has to be reachable from the host: a public https tunnel in
         // BASE_URL for hosted clients, localhost for local ones.
-        // INLINE_DEV_MODE (npm run dev:inline) is the opt-out for hosts that
-        // cannot reach the tunnel; it serves fully inlined HTML from the
-        // watch build instead.
-        const useInline = INLINE_DEV_MODE;
-
         const resourceDomains: string[] = [];
         const connectDomains: string[] = [];
-        let finalHtml: string;
 
-        if (useInline) {
-          finalHtml = getInlinedHtml(widgetId);
-          // Inlining swaps local @fontsource fonts for Google Fonts.
-          // Remove if you self-host fonts.
-          resourceDomains.push(...GOOGLE_FONTS_DOMAINS);
-        } else {
-          finalHtml = await readWidgetHtml(widgetId);
-          const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
-          resourceDomains.push(widgetOrigin.origin);
-          if (IS_DEV) {
-            // Vite dev server: allow module fetches plus the HMR websocket
-            connectDomains.push(widgetOrigin.origin, widgetOrigin.wsOrigin);
-            if (widgetOrigin.isLocalhost) {
-              const altOrigin = `http://127.0.0.1:${WIDGET_PORT}`;
-              resourceDomains.push(altOrigin);
-              connectDomains.push(
-                altOrigin,
-                altOrigin.replace('http://', 'ws://')
+        const finalHtml = await readWidgetHtml(widgetId);
+        const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
+        resourceDomains.push(widgetOrigin.origin);
+        if (IS_DEV) {
+          // Vite dev server: allow module fetches plus the HMR websocket
+          connectDomains.push(widgetOrigin.origin, widgetOrigin.wsOrigin);
+          if (widgetOrigin.isLocalhost) {
+            const altOrigin = `http://127.0.0.1:${WIDGET_PORT}`;
+            resourceDomains.push(altOrigin);
+            connectDomains.push(
+              altOrigin,
+              altOrigin.replace('http://', 'ws://')
+            );
+            if (clientInfo) {
+              // A hosted client (claude.ai, ChatGPT) cannot load
+              // http://localhost from its https sandbox.
+              serverLogger.warn(
+                { clientInfo, widgetOrigin: widgetOrigin.origin },
+                'BASE_URL is not set; hosted clients need an https tunnel to the widget dev server (see .env.example)'
               );
-              if (clientInfo) {
-                // A hosted client (claude.ai, ChatGPT) cannot load
-                // http://localhost from its https sandbox.
-                serverLogger.warn(
-                  { clientInfo, widgetOrigin: widgetOrigin.origin },
-                  'BASE_URL is not set; hosted clients need an https tunnel to the widget dev server (see .env.example)'
-                );
-              }
             }
           }
         }
@@ -299,7 +216,6 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
             resourceUri,
             widgetId,
             clientInfo,
-            useInline,
             cspMeta,
           },
           'Widget resource loaded'
@@ -432,18 +348,9 @@ async function main() {
       logLevel: LOG_LEVEL,
       assetsDir: ASSETS_DIR,
       baseUrl: BASE_URL,
-      inlineDevMode: INLINE_DEV_MODE,
     },
     'Starting MCP App Template server'
   );
-
-  const widgetIds = [ECHO_WIDGET.id];
-
-  // Inlined HTML is only served in INLINE_DEV_MODE (npm run dev:inline);
-  // keep its cache fresh as the widget watch build emits new assets.
-  if (INLINE_DEV_MODE) {
-    watchAssetsForInlining(widgetIds);
-  }
 
   const app = express();
 

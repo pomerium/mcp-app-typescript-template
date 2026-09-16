@@ -1,20 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import {
   CLIENT_INFO_META_KEY,
   type ServerContext,
 } from '@modelcontextprotocol/server';
-
-/** Minimal logger surface so these helpers stay testable without pino */
-export interface WidgetHtmlLogger {
-  debug: (obj: Record<string, unknown> | string, msg?: string) => void;
-  warn: (obj: Record<string, unknown> | string, msg?: string) => void;
-}
-
-const noopLogger: WidgetHtmlLogger = {
-  debug: () => {},
-  warn: () => {},
-};
 
 export interface ClientIdentity {
   name?: string;
@@ -71,87 +58,4 @@ export function resolveWidgetOrigin(
     wsOrigin: origin.replace(/^http/, 'ws'),
     isLocalhost: url.hostname === 'localhost' || url.hostname === '127.0.0.1',
   };
-}
-
-const GOOGLE_FONTS_LINK =
-  '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap">';
-
-export const GOOGLE_FONTS_DOMAINS = [
-  'https://fonts.googleapis.com',
-  'https://fonts.gstatic.com',
-];
-
-/**
- * Inline built JS/CSS assets into widget HTML so it renders in hosts that
- * cannot reach the widget origin (INLINE_DEV_MODE). Local @fontsource fonts
- * cannot survive inlining, so Google Fonts are injected as a replacement —
- * remember to allow GOOGLE_FONTS_DOMAINS in the resource CSP.
- */
-export function inlineWidgetAssets(
-  html: string,
-  assetsDir: string,
-  logger: WidgetHtmlLogger = noopLogger
-): string {
-  logger.debug({ htmlLength: html.length }, 'Inlining widget assets');
-  let nextHtml = html;
-  const scripts = Array.from(
-    html.matchAll(
-      /<script[^>]*type="module"[^>]*src="([^"]+)"[^>]*><\/script>/g
-    )
-  );
-  logger.debug(
-    { scriptMatches: scripts.length },
-    'Found script tags to inline'
-  );
-  for (const match of scripts) {
-    const src = match[1];
-    const filename = path.basename(src.split('?')[0]);
-    const assetPath = path.join(assetsDir, filename);
-    if (!fs.existsSync(assetPath)) {
-      logger.warn(
-        { assetPath },
-        'Inline asset missing, leaving script tag as-is'
-      );
-      continue;
-    }
-    const js = fs.readFileSync(assetPath);
-    const b64 = js.toString('base64');
-    const inlineTag = `<script type="module" src="data:text/javascript;base64,${b64}"></script>`;
-    nextHtml = nextHtml.replace(match[0], () => inlineTag);
-  }
-
-  const styles = Array.from(
-    html.matchAll(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g)
-  );
-  for (const match of styles) {
-    const href = match[1];
-    const filename = path.basename(href.split('?')[0]);
-    const assetPath = path.join(assetsDir, filename);
-    if (!fs.existsSync(assetPath)) {
-      logger.warn(
-        { assetPath },
-        'Inline asset missing, leaving style tag as-is'
-      );
-      continue;
-    }
-
-    const css = fs.readFileSync(assetPath, 'utf-8');
-    const inlineTag = `<style>${css}</style>`;
-    nextHtml = nextHtml.replace(match[0], () => inlineTag);
-  }
-
-  nextHtml = nextHtml
-    .replace(/<link[^>]*rel="modulepreload"[^>]*>/g, '')
-    .replace(/<link[^>]*rel="preload"[^>]*as="style"[^>]*>/g, '')
-    .replace('</head>', `${GOOGLE_FONTS_LINK}\n</head>`);
-
-  logger.debug(
-    {
-      finalLength: nextHtml.length,
-      hasLocalhost: nextHtml.includes('localhost'),
-    },
-    'Inlining complete'
-  );
-
-  return nextHtml;
 }

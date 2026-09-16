@@ -31,7 +31,6 @@ This starts both the MCP server (`http://localhost:8080`) and widget dev server 
 
 ```bash
 npm run dev               # Start everything (MCP server + widget dev server); no build step
-npm run dev:inline        # Fallback: inlined snapshots from a watch build, for hosts that can't reach the dev server
 npm run dev:server        # Start only MCP server (watch mode)
 npm run dev:widgets       # Start only widget dev server
 npm run inspect           # Test with MCP Inspector
@@ -271,8 +270,6 @@ Verified against claude.ai (Sept 2026, see `docs/no-build-dev-investigation.md`)
 
 Edit loop: Vite pushes changed modules over the websocket and React Fast Refresh swaps them in place, in every host, with no tool re-invocation.
 
-`INLINE_DEV_MODE=true` (`npm run dev:inline`) is the fallback for a host that cannot reach the widget origin. It runs `vite build --watch` next to the server and serves **fully inlined HTML** built from `assets/` (JS/CSS as `<script>`/`<style>` blocks, local images as data URIs, fonts via Google Fonts with domains auto-added to `resourceDomains`); an `fs.watch` on `assets/` re-inlines after each rebuild, and the next `resources/read` returns fresh HTML (re-invoke the tool to see changes). Inlining is never used in production — hosts fetch widget assets from `BASE_URL`.
-
 If you self-host tunneling, you can create a public route in Pomerium for widgets or host them elsewhere (Vercel, Netlify, etc.) — just add those domains to `resourceDomains`.
 
 ### External Resources & CSP
@@ -282,8 +279,7 @@ MCP Apps hosts render widgets in sandboxed iframes with strict CSP. Remote image
 - `resourceDomains` — allows loading images, fonts, scripts from listed origins
 - `connectDomains` — allows `fetch()`/XHR to listed origins
 - Each domain must be explicitly listed (no wildcards); include redirect targets too
-- Data URIs always work — Vite-imported images are inlined via `assetsInlineLimit` in inline asset mode
-- In inline dev mode (`INLINE_DEV_MODE`), Google Fonts domains (`https://fonts.googleapis.com`, `https://fonts.gstatic.com`) are automatically added to `resourceDomains`
+- Data URIs always work — Vite inlines small imported images (default `assetsInlineLimit` 4 KiB); larger ones are served from the widget origin, which is already declared
 
 ### Mock App for Testing & Storybook
 
@@ -410,7 +406,6 @@ WIDGET_PORT=4444               # Widget dev server port (default: 4444)
 LOG_LEVEL=info                 # Pino log level: fatal, error, warn, info, debug, trace
 CORS_ORIGIN=*                  # CORS origin (set to domain in production)
 BASE_URL=                      # Public widget asset URL: CDN in production, tunnel to the widget dev server in dev
-INLINE_DEV_MODE=true           # Serve inlined snapshots instead of live dev-server modules (npm run dev:inline)
 ```
 
 Requirements:
@@ -524,8 +519,8 @@ docker-compose -f docker/docker-compose.yml up -d
 - Widget components accept an `app` prop typed as `AppLike<T>` so the real `App` or `createMockApp()` can be injected
 - Use `containerDimensions.maxHeight` (not viewport height) for responsive widget sizing
 - When adding new App API calls (`openLink`, `sendMessage`, `updateModelContext`), add the method signature to `AppLike` in `widgets/src/types/mcp-app.ts` and the mock in `widgets/src/mocks/mock-app.ts`
-- `npm run dev` covers Claude.ai automatically (per-client inlined HTML); set `BASE_URL` to a tunnel of port 4444 for HMR through hosts that load external assets
-- Widget build is separate from server build - always run `npm run build:widgets` when modifying widgets
+- `npm run dev` has no build step; hosted clients (Claude.ai, ChatGPT) need `BASE_URL` set to an https tunnel of port 4444 to load widgets and get HMR
+- Widget build is separate from server build and only needed for production (`npm run build:widgets`)
 - The `text/html;profile=mcp-app` MIME type is non-negotiable for MCP Apps UI loading
 - MCP HTTP handling is stateless - each request gets a fresh MCP server instance and no session affinity is required
 - Node.js 24+ is required for ES2023 features and native type stripping
