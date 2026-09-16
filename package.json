@@ -64,10 +64,10 @@
   "dependencies": {
     "@eslint/js": "^10.0.1",
     "globals": "^17.12.0",
-    "zod": "^4.1.13"
+    "zod": "^4.2.0"
   },
   "overrides": {
-    "zod": "^4.1.13",
+    "zod": "^4.2.0",
     "@typescript-eslint/eslint-plugin": {
       "typescript": "$typescript"
     },
@@ -79,6 +79,6 @@
     }
   },
   "resolutions": {
-    "zod": "^4.1.13"
+    "zod": "^4.2.0"
   }
 }

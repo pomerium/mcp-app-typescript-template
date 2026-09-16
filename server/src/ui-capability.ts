@@ -1,5 +1,6 @@
 import {
   CLIENT_CAPABILITIES_META_KEY,
+  type ClientCapabilities,
   type ServerContext,
 } from '@modelcontextprotocol/server';
 import {
@@ -19,9 +20,8 @@ export function clientCanRenderUi(ctx: ServerContext): boolean {
   // envelope keys are intentionally opaque in that public type, so use a
   // record view for the SDK-exported key constant.
   const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
-  const clientCapabilities = envelope?.[
-    CLIENT_CAPABILITIES_META_KEY
-  ] as Parameters<typeof getUiCapability>[0];
+  const clientCapabilities = envelope?.[CLIENT_CAPABILITIES_META_KEY] as
+    ClientCapabilities | undefined;
 
   return Boolean(
     getUiCapability(clientCapabilities)?.mimeTypes?.includes(RESOURCE_MIME_TYPE)
