@@ -64,11 +64,14 @@ registerAppTool(
   {
     title: 'My Tool',
     description: 'Does something useful',
-    inputSchema: MyToolInputSchema.shape,
+    inputSchema: MyToolInputSchema,
   },
   async (args) => {
     serverLogger.info({ toolName: 'my-tool', args }, 'Tool invoked');
 
+    // The SDK already validated `args` against `inputSchema` (a Zod object)
+    // before this callback ran. The `safeParse` below is optional defense
+    // in depth — drop it and use `args` directly once your schema is settled.
     const result = MyToolInputSchema.safeParse(args);
     if (!result.success) {
       return {
@@ -105,11 +108,11 @@ registerAppTool(
   {
     title: 'My Tool',
     description: 'Does something useful',
-    inputSchema: MyToolInputSchema.shape,
+    inputSchema: MyToolInputSchema,
     _meta: { ui: { resourceUri: MY_WIDGET.uri } },
   },
   async (args, ctx) => {
-    const canRenderUi = clientCanRenderUi(ctx as unknown as ServerContext);
+    const canRenderUi = clientCanRenderUi(ctx);
     // ... validate, compute output ...
     if (!canRenderUi) {
       return {
@@ -131,7 +134,7 @@ registerAppTool(
 
 ## Step 3: Write Tests
 
-Add tests in `server/tests/`. Follow the pattern of existing test files. Run with:
+Add tests in `server/tests/`. Follow the pattern of existing test files. `server/tests/server.test.ts` shows how to exercise the real handler end-to-end — call `createHandler().fetch(request)` with a modern 2026-07-28 request (and a legacy 2025-era one) instead of unit-testing the tool callback in isolation. Run with:
 
 ```bash
 npm run test:server

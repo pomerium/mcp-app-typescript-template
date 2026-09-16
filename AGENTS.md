@@ -40,16 +40,16 @@ Dev-serving mechanics (`BASE_URL`, tunnels, HMR over websockets) are documented 
   ```
 
 - **Widget build** — Vite scans `widgets/src/widgets/*.{tsx,jsx}`; the filename is the widget id (`echo.tsx` → `ui://echo`); each entry must include its own mounting code. For the full walkthrough, use the `add-widget` / `create-mcp-tool` skills or README's "Adding New Tools" / "Widget Development" sections.
-- **Zod validation** — schemas live in `server/src/types.ts`; handlers call `SchemaName.parse(args)`; types are inferred via `z.infer`.
+- **Zod validation** — schemas live in `server/src/types.ts` and are passed directly as `inputSchema` (the Zod object itself, e.g. `inputSchema: MyToolInputSchema`, never `.shape`); handlers receive typed args plus a `ServerContext` `ctx`; types are inferred via `z.infer`.
 - **UI capability negotiation** — tools always carry MCP Apps metadata plus a text fallback; `getUiCapability()` / `clientCanRenderUi()` gate `structuredContent` for hosts that can't render UI, automatically.
 
 ## File Organization
 
 ### Server
 
-- `server/src/server.ts` - main server, stateless HTTP handler, tool and resource registration
+- `server/src/server.ts` - exports `createMcpServer()` / `createHandler()`; only calls `main()` and listens on a port when run directly (`import.meta.main`), so tests can drive the handler without binding one
 - `server/src/types.ts` - Zod schemas and TypeScript interfaces
-- `server/tests/*.test.ts` - Vitest specs
+- `server/tests/*.test.ts` - Vitest specs; `server/tests/server.test.ts` drives the real handler end-to-end via `createHandler().fetch(...)`
 
 ### Widgets
 
@@ -99,4 +99,5 @@ See README's "Troubleshooting" section for standard fixes (widget not loading, b
 - Widget build (`npm run build:widgets`) is only needed for production, not local dev
 - MCP HTTP handling is stateless — each request gets a fresh server instance, no session affinity
 - Node.js 24+ is required for ES2023 features and native type stripping
+- `@modelcontextprotocol/ext-apps` 2.x sits on the split v2 SDK packages — never add the monolithic v1 `@modelcontextprotocol/sdk` back as a dependency; server-side types (e.g. `ServerContext`) come from `@modelcontextprotocol/server`, widget-side MCP wire types (e.g. `TextContent`) come from `@modelcontextprotocol/client`
 - Two TypeScript compilers are installed side by side: `typescript` is aliased to the TS6-compatible package for `typescript-eslint` (which doesn't support TS7 yet — see README's "Why Two TypeScript Compilers?"), while `@typescript/native` (aliased to real TS7) provides the `tsc` binary used for builds/type-checking. If either alias is edited, delete `package-lock.json` before `npm install` so both fully re-resolve.

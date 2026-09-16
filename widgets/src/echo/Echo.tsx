@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { App } from '@modelcontextprotocol/ext-apps';
-import type { TextContent } from '@modelcontextprotocol/sdk/types.js';
+import type { TextContent } from '@modelcontextprotocol/client';
 import { Button } from '@/components/ui/button';
 import type { EchoToolOutput } from 'mcp-app-server/types';
 import {

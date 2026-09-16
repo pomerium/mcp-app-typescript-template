@@ -390,6 +390,8 @@ mcp-app-template/
 
 ```typescript
 // server/src/types.ts
+import { z } from 'zod';
+
 export const MyToolInputSchema = z.object({
   input: z.string().min(1, 'Input is required'),
 });
@@ -404,22 +406,17 @@ registerAppTool(
   {
     title: 'My Tool',
     description: 'Does something cool',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        input: { type: 'string', description: 'Tool input' },
-      },
-      required: ['input'],
-    },
+    inputSchema: MyToolInputSchema,
     _meta: {
       ui: { resourceUri: 'ui://my-widget' },
     },
   },
   async (args) => {
-    const input = MyToolInputSchema.parse(args).input;
+    // args is already typed and validated against `inputSchema` (a Zod
+    // object) before this callback runs.
     return {
       content: [{ type: 'text', text: 'Result' }],
-      structuredContent: { result: input },
+      structuredContent: { result: args.input },
     };
   }
 );
@@ -880,6 +877,7 @@ npm run test:coverage
 - Tool response structure
 - Stateless transport behavior
 - Error handling
+- End-to-end requests through the real `createHandler()` (modern 2026-07-28 and legacy 2025-era fallback) — see `server/tests/server.test.ts`
 
 **Widget Tests** (`widgets/tests/`):
 
@@ -1014,6 +1012,17 @@ curl http://localhost:8080/health
 
 This release uses the MCP `2026-07-28` stateless transport. Older 2025-era clients are supported through the SDK's stateless legacy fallback, but the fallback does not preserve transport sessions, session IDs, standalone SSE streams, or resumability. Clients that require those stateful behaviors should use a pre-`2.0.0` release.
 
+#### Upgrading from ext-apps 1.x / `@modelcontextprotocol/sdk`
+
+If you're porting a fork or older code sample onto this template's `@modelcontextprotocol/ext-apps` 2.x baseline:
+
+- Remove `@modelcontextprotocol/sdk` (v1) entirely — it's not a dependency anywhere in this template; ext-apps 2.x sits on the split v2 packages instead
+- Import wire types (e.g. `TextContent`, `CallToolResult`) from `@modelcontextprotocol/client` in widget code, or from `@modelcontextprotocol/server` in server code — not from `@modelcontextprotocol/sdk/types.js`
+- Pass a Zod object schema directly as `inputSchema` (e.g. `inputSchema: MyToolInputSchema`), not the deprecated raw shape (`MyToolInputSchema.shape`); Zod must be `^4.2.0` or newer
+- Tool and resource callbacks receive a v2 `ServerContext` as `ctx` directly (`ctx.mcpReq.id`, `ctx.mcpReq.signal`) — there's no `sessionId` and no need to cast `ctx`/`extra` with `as unknown as ServerContext`
+
+See the upstream [migrate-to-v2 guide](https://apps.extensions.modelcontextprotocol.io/api/documents/migrate-to-v2.html) for the full list of breaking changes.
+
 ### Build Failures
 
 **Symptom**: `npm run build:widgets` fails
@@ -1045,6 +1054,8 @@ The template uses `McpServer` from `@modelcontextprotocol/server` together with 
 - The pattern is portable across MCP Apps hosts (ChatGPT, VS Code, Claude, Goose)
 
 The HTTP endpoint uses `createMcpHandler` from the v2 TypeScript SDK. The handler creates a fresh server and transport per request, which implements the 2026-07-28 stateless protocol and allows horizontal scaling without session affinity.
+
+`@modelcontextprotocol/ext-apps` is on the 2.x line, which is built on the split v2 SDK packages (`@modelcontextprotocol/server`, `client`, `core`, `node`) rather than one monolithic package. The old v1 `@modelcontextprotocol/sdk` package is not a dependency anywhere in this template.
 
 ### Why Node.js 24 + ES2023?
 

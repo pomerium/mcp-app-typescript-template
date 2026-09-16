@@ -11,7 +11,6 @@ import {
   createMcpHandler,
   McpServer,
   type ProtocolEra,
-  type ServerContext,
 } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import {
@@ -133,38 +132,30 @@ async function readWidgetHtml(widgetId: string): Promise<string> {
 }
 
 /**
- * Create an MCP server instance with echo tool
+ * Create an MCP server instance with echo tool.
+ *
+ * `createMcpHandler` calls this once per HTTP request (MCP 2026-07-28 is
+ * stateless), so nothing registered here survives beyond that request.
  */
-function createMcpServer(protocolEra: ProtocolEra): McpServer {
+export function createMcpServer(protocolEra: ProtocolEra): McpServer {
   const server = new McpServer({
     name: pkg.name,
     version: pkg.version,
   });
-
-  // ext-apps 1.x is typed against the v1 SDK; bridge the v2 McpServer once
-  // here. Only registerTool/registerResource are called, and those are
-  // call-compatible at runtime. Drop this when ext-apps targets the v2 SDK.
-  const extAppsServer = server as unknown as Parameters<
-    typeof registerAppTool
-  >[0] &
-    Parameters<typeof registerAppResource>[0];
 
   const serverLogger = logger.child({ protocolEra });
 
   const resourceUri = ECHO_WIDGET.uri;
 
   registerAppResource(
-    extAppsServer,
+    server,
     resourceUri,
     resourceUri,
     { mimeType: RESOURCE_MIME_TYPE },
-    async (_uri, extra) => {
+    async (_uri, ctx) => {
       serverLogger.debug({ resourceUri }, 'Resource callback called');
       const widgetId = resourceUri.replace('ui://', '');
-      // ext-apps types this callback against the v1 SDK; the v2 runtime
-      // supplies ServerContext, so bridge the callback type here.
-      const serverContext = extra as unknown as ServerContext;
-      const clientInfo = getClientIdentity(serverContext);
+      const clientInfo = getClientIdentity(ctx);
       try {
         // Dev serves the live Vite module graph (with HMR) to every client.
         // Hosts render widget HTML inside a sandboxed iframe whose CSP is
@@ -242,12 +233,12 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
   );
 
   registerAppTool(
-    extAppsServer,
+    server,
     'echo',
     {
       title: 'Echo',
       description: "Echoes back the user's message in an interactive view",
-      inputSchema: EchoToolInputSchema.shape,
+      inputSchema: EchoToolInputSchema,
       // Always advertised, unconditionally: per the 2026-07-28 spec, list
       // endpoints (tools/list included) no longer vary per-connection, so
       // this can't be gated on the caller's capabilities the way it once
@@ -260,10 +251,7 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
       },
     },
     async (args, ctx) => {
-      // ext-apps still types this callback against the v1 SDK; the v2 runtime
-      // supplies ServerContext, so bridge the callback type here.
-      const serverContext = ctx as unknown as ServerContext;
-      const canRenderUiByCapability = clientCanRenderUi(serverContext);
+      const canRenderUiByCapability = clientCanRenderUi(ctx);
 
       serverLogger.info(
         { toolName: 'echo', args, canRenderUiByCapability },
@@ -333,6 +321,22 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
 }
 
 /**
+ * Build the stateless MCP request handler used by the `/mcp` route.
+ *
+ * Every request gets a fresh `McpServer` from `createMcpServer`. The
+ * `legacy: 'stateless'` option lets older 2025-era clients (which still send
+ * an `initialize` handshake) be served by the same handler with no session.
+ */
+export function createHandler() {
+  return createMcpHandler(({ era }) => createMcpServer(era), {
+    legacy: 'stateless',
+    onerror: (err) => {
+      logger.error({ err }, 'Error handling MCP request');
+    },
+  });
+}
+
+/**
  * Main server setup
  */
 async function main() {
@@ -380,12 +384,7 @@ async function main() {
     res.json({ status: 'ok' });
   });
 
-  const handler = createMcpHandler(({ era }) => createMcpServer(era), {
-    legacy: 'stateless',
-    onerror: (err) => {
-      logger.error({ err }, 'Error handling MCP request');
-    },
-  });
+  const handler = createHandler();
   const nodeHandler = toNodeHandler(handler, {
     onerror: (err) => {
       logger.error({ err }, 'Error adapting MCP request for Node');
@@ -441,7 +440,12 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  logger.fatal({ err }, 'Failed to start server');
-  process.exit(1);
-});
+// Only start listening when run directly (`node dist/server.js`, `tsx watch
+// src/server.ts`). Tests import `createMcpServer` / `createHandler` without
+// binding a port.
+if (import.meta.main) {
+  main().catch((err) => {
+    logger.fatal({ err }, 'Failed to start server');
+    process.exit(1);
+  });
+}
