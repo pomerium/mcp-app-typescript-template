@@ -1056,6 +1056,15 @@ The HTTP endpoint uses `createMcpHandler` from the v2 TypeScript SDK. The handle
 - Pretty printing in development
 - Easy integration with monitoring tools
 
+### Why Two TypeScript Compilers?
+
+TypeScript 7's native (Go-ported) compiler doesn't expose the legacy programmatic API that `typescript-eslint` still depends on. Until `typescript-eslint` ships native TS7 support ([tracking issue](https://github.com/typescript-eslint/typescript-eslint/issues/10940)), this template uses npm aliases to run both side by side:
+
+- `typescript` is aliased to `@typescript/typescript6`, the TS6-compatible compiler API package — this is what `typescript-eslint` resolves and lints against.
+- `@typescript/native` is aliased to the real `typescript@^7`, which provides the `tsc` binary used by `npm run build` and `npm run type-check`.
+
+If you ever need to invoke the TS6 compiler directly, its binary is available as `tsc6`. No other configuration should be needed; if `npm run lint` or `npm run type-check` misbehaves after a dependency update, delete `package-lock.json` and reinstall so npm fully re-resolves both aliases (an incremental `npm install` after editing these two lines directly can leave a stale bin symlink).
+
 ## Contributing
 
 Contributions welcome! Please:
