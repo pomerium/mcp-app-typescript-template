@@ -142,7 +142,20 @@ export const Default: StoryObj<typeof MyWidget> = {
 
 ---
 
-## Step 6: Verify
+## Step 6: Write Tests
+
+Two separate test suites need a new entry — neither is optional, and neither is covered by the other:
+
+- **Server side**: add a test in `server/tests/` for the tool itself. This is the `create-mcp-tool` skill's "Step 3: Write Tests" — follow it (`server/tests/server.test.ts`'s pattern of exercising `createHandler().fetch(request)` end-to-end, not unit-testing the callback in isolation).
+- **Widget side**: create `widgets/tests/MyWidget.test.tsx` following `widgets/tests/Echo.test.tsx`'s pattern — Testing Library `render()` with `createMockApp()` injected via the `app` prop, asserting the rendered content, any fallback/empty state, and the action buttons exist. This is unmentioned by `npm test` alone (it runs whatever tests already exist, it doesn't create this one for you), and there is currently no other test covering widget-specific rendering.
+
+Run both with `npm test`.
+
+**Not needed**: a new end-to-end Playwright spec. `e2e/widget.spec.ts` already drives a real widget through the real `AppBridge`/sandboxed-iframe mechanism generically — that plumbing is shared, not per-widget, so a new widget doesn't need its own copy of it. Only add an e2e case if the widget exercises an App API call that no existing widget uses yet.
+
+---
+
+## Step 7: Verify
 
 ```bash
 npm run dev          # starts server (:8080) + widget dev server (:4444)
