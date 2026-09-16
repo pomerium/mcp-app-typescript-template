@@ -92,7 +92,7 @@ See README's "Troubleshooting" section for standard fixes (widget not loading, b
 
 - Always read `server/src/server.ts` to understand current tool implementations before modifying it
 - `_meta.ui.resourceUri` is critical for UI binding — never omit it
-- Widget components accept an `app` prop typed as `AppLike<T>` so the real `App` or `createMockApp()` can be injected
+- Widget components accept an `app` prop typed as `AppLike<T>` so the real `App` or `createMockApp()` can be injected; the internally-created instance must be closed on unmount (never an injected one) — see the `add-widget` skill for the full pattern
 - Use `containerDimensions.maxHeight` (not viewport height) for responsive widget sizing
 - When adding a new App API call (`openLink`, `sendMessage`, `updateModelContext`, etc.), add its signature to `AppLike` in `widgets/src/types/mcp-app.ts` and the mock in `widgets/src/mocks/mock-app.ts`
 - `npm run dev` has no build step; hosted clients (Claude.ai, ChatGPT) need `BASE_URL` set to an https tunnel of port 4444 to load widgets and get HMR
