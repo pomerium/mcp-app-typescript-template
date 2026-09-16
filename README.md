@@ -10,7 +10,7 @@ A well-architected starter template demonstrating best practices for building MC
 - **Display Modes** - Inline, picture-in-picture, and fullscreen with runtime toggling via `requestDisplayMode()`
 - **App API Demo** - `callServerTool`, `openLink`, `sendMessage`, `updateModelContext` showcased in the Echo widget
 - **Stateless MCP HTTP** - Per-request server factories with no transport sessions or session affinity
-- **No-Build Dev Loop** - Widgets load live from the Vite dev server with HMR in Claude.ai and ChatGPT; inlined snapshots remain as an opt-in fallback
+- **No-Build Dev Loop** - Widgets load live from the Vite dev server with HMR in Claude.ai and ChatGPT
 - **Container Dimensions** - Responsive widget sizing using host-provided `containerDimensions`
 - **Mock App** - Drop-in `createMockApp()` helper for testing and Storybook without a live MCP connection
 - **[Pino](https://getpino.io/) Logging** - Structured logging with pretty printing in development
@@ -169,7 +169,7 @@ Then set `BASE_URL` in `.env` to that tunnel's public URL and restart `npm run d
 BASE_URL=https://widgets.first-wallaby-240.pom.run
 ```
 
-Widget HTML, CSP domains (`https://` + `wss://` for HMR), and Vite's allowed hosts are all derived from `BASE_URL` automatically. Without `BASE_URL`, widget assets are served from `http://localhost:4444`, which only works when the host's iframe runs in a browser on your machine and is not itself served over https (the sandbox CSP upgrades insecure requests). If you can't run a tunnel, `npm run dev:inline` serves self-contained snapshots instead.
+Widget HTML, CSP domains (`https://` + `wss://` for HMR), and Vite's allowed hosts are all derived from `BASE_URL` automatically. Without `BASE_URL`, widget assets are served from `http://localhost:4444`, which only works when the host's iframe runs in a browser on your machine and is not itself served over https (the sandbox CSP upgrades insecure requests). If you can't run a tunnel, `npm run build` and point `BASE_URL` at any static host that serves `assets/`.
 
 ### Success! What's Next?
 
@@ -187,9 +187,6 @@ Now that your app is working, you can:
 ```bash
 # Start everything (MCP server + widget dev server). No build step; HMR in every host.
 npm run dev
-
-# Fallback: serve inlined snapshots from a watch build (for hosts that can't reach your dev server)
-npm run dev:inline
 
 # Start only MCP server (watch mode)
 npm run dev:server
@@ -585,7 +582,7 @@ This happens automatically via `getUiCapability()` from `@modelcontextprotocol/e
 | `dev:server`  | MCP server on `:8080` — serves the widget HTML shell and its CSP metadata |
 | `dev:widgets` | Vite dev server on `:4444` — live source modules + HMR websocket          |
 
-Nothing is built. `assets/` is only produced by `npm run build` (production) or `npm run dev:inline` (see below).
+Nothing is built in development. `assets/` is only produced by `npm run build` for production.
 
 #### First render (a host requests the widget)
 
@@ -597,26 +594,12 @@ Hosted clients (Claude.ai, ChatGPT) render the widget from an https sandbox orig
 
 Vite pushes the changed module over the websocket and React Fast Refresh swaps it in place: no reload, component state preserved, no tool re-invocation. This is the same in every host that loaded the shell.
 
-#### `npm run dev:inline`: the fallback for hosts that can't reach your dev server
-
-If a host cannot reach the widget origin (no tunnel available, a locked-down network), run `npm run dev:inline` instead. It sets `INLINE_DEV_MODE=true` and runs a `vite build --watch` alongside the server; every client then gets a **self-contained snapshot** of the latest `assets/` build with JS/CSS inlined and local images as data URIs. There is no HMR in this mode: the watch build finishes (~1s), the server re-inlines automatically, and the **next** `resources/read` returns fresh HTML, so re-invoke the tool to see changes.
-
 #### Production is unaffected
 
 None of this machinery runs in production (`NODE_ENV=production`):
 
 - `npm run build` output is unchanged: hashed bundles in `assets/` plus HTML referencing them via `BASE_URL`
-- The server never inlines and never points at a dev server; hosts fetch widget assets from `BASE_URL` (CDN or static host) exactly as before
-
-### Inline Widget Assets
-
-Inlining exists for hosts that cannot load anything from your widget origin. In development it is opt-in via `npm run dev:inline` (see above); it is never used in production, where hosts fetch deployed assets from `BASE_URL`.
-
-Inlined HTML is self-contained:
-
-- **JS/CSS** — inlined as `<script>`/`<style>` blocks
-- **Local images** — inlined as data URIs via Vite's `assetsInlineLimit`
-- **Fonts** — loaded via Google Fonts (the required domains `fonts.googleapis.com` and `fonts.gstatic.com` are automatically added to `resourceDomains` in the CSP)
+- The server never points at a dev server; hosts fetch widget assets from `BASE_URL` (CDN or static host) exactly as before
 
 ### Loading External Resources (Images, APIs, etc.)
 
@@ -652,7 +635,7 @@ The host merges these domains into the iframe's CSP, allowing the widget to load
 **Key points:**
 
 - **Remote images require `resourceDomains`** — without it, `<img src="https://...">` will silently fail in most hosts
-- **Data URIs always work** — images imported via Vite (`import img from './photo.png'`) are inlined as data URIs when `assetsInlineLimit` is set (see [Inline Widget Assets](#inline-widget-assets))
+- **Data URIs always work** — small images imported via Vite (`import img from './photo.png'`) become data URIs (Vite's default `assetsInlineLimit` is 4 KiB; raise it in `widgets/vite.config.ts` to inline more); larger ones are served from the widget origin, which is already in `resourceDomains`
 - **Each domain must be explicitly listed** — wildcards are not supported; include all domains your widget needs (e.g. both `https://picsum.photos` and `https://fastly.picsum.photos` if the first redirects to the second)
 - **`connectDomains`** — use this for `fetch()`/`XMLHttpRequest` calls to external APIs
 
@@ -749,9 +732,6 @@ CORS_ORIGIN=*
 # Dev: an https tunnel to the widget dev server (needed for hosted clients such as Claude.ai and ChatGPT)
 # Production: your CDN/static host (required)
 # BASE_URL=https://cdn.example.com/assets
-
-# Serve inlined snapshots instead of live dev-server modules (npm run dev:inline sets this)
-# INLINE_DEV_MODE=true
 ```
 
 ### Critical Configuration Notes

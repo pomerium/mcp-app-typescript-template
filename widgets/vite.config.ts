@@ -14,10 +14,6 @@ export default defineConfig(({ mode, command }) => {
   }
 
   const isProd = process.env.NODE_ENV === 'production';
-  // Dev builds only feed the inlined-HTML fallback (npm run dev:inline, for
-  // hosts that can't reach the widget origin), so embed local images as data
-  // URIs there.
-  const inlineAssets = env.INLINE_DEV_MODE === 'true' || !isProd;
   const widgetPort = Number(process.env.WIDGET_PORT || env.WIDGET_PORT || 4444);
 
   // When BASE_URL points at a tunnel to this dev server (e.g. ssh -R 0
@@ -62,8 +58,8 @@ export default defineConfig(({ mode, command }) => {
       fs: {
         allow: ['..'],
       },
-      // A watch build (npm run dev:inline, or a manual vite build) rewrites
-      // ../assets; don't let those writes trigger full page reloads on top of HMR.
+      // A manual `vite build` rewrites ../assets while the dev server runs;
+      // don't let those writes trigger full page reloads on top of HMR.
       watch: {
         ignored: [path.resolve(import.meta.dirname, '../assets') + '/**'],
       },
@@ -93,7 +89,6 @@ export default defineConfig(({ mode, command }) => {
       outDir: '../assets',
       emptyOutDir: false,
       sourcemap: true,
-      ...(inlineAssets ? { assetsInlineLimit: 100 * 1024 } : {}), // 100KB in inline mode to embed local images as data URIs
       // Vite 8 uses the Oxc minifier by default (`minify: true`); the old
       // 'esbuild' string now requires esbuild to be installed as a separate
       // dependency, so we use the built-in minifier instead.

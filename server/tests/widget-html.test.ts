@@ -1,16 +1,9 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, expect, it } from 'vitest';
 import {
   CLIENT_INFO_META_KEY,
   type ServerContext,
 } from '@modelcontextprotocol/server';
-import {
-  getClientIdentity,
-  inlineWidgetAssets,
-  resolveWidgetOrigin,
-} from '../src/widget-html.js';
+import { getClientIdentity, resolveWidgetOrigin } from '../src/widget-html.js';
 
 function contextWithClientInfo(info: unknown): ServerContext {
   return {
@@ -65,50 +58,5 @@ describe('resolveWidgetOrigin', () => {
       wsOrigin: 'wss://widgets.example.pom.run',
       isLocalhost: false,
     });
-  });
-});
-
-describe('inlineWidgetAssets', () => {
-  let assetsDir: string;
-
-  beforeAll(() => {
-    assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'widget-html-test-'));
-    fs.writeFileSync(path.join(assetsDir, 'echo-abc123.js'), 'console.log(1);');
-    fs.writeFileSync(path.join(assetsDir, 'echo-def456.css'), 'body{margin:0}');
-  });
-
-  afterAll(() => {
-    fs.rmSync(assetsDir, { recursive: true, force: true });
-  });
-
-  const html = [
-    '<!doctype html>',
-    '<html>',
-    '<head>',
-    '<link rel="modulepreload" href="http://localhost:4444/echo-abc123.js">',
-    '<link rel="preload" href="http://localhost:4444/echo-def456.css" as="style">',
-    '<script type="module" src="http://localhost:4444/echo-abc123.js"></script>',
-    '<link rel="stylesheet" href="http://localhost:4444/echo-def456.css">',
-    '</head>',
-    '<body><div id="echo-root"></div></body>',
-    '</html>',
-  ].join('\n');
-
-  it('inlines JS and CSS, strips preloads, and injects Google Fonts', () => {
-    const result = inlineWidgetAssets(html, assetsDir);
-
-    expect(result).toContain('data:text/javascript;base64,');
-    expect(result).toContain('<style>body{margin:0}</style>');
-    expect(result).not.toContain('modulepreload');
-    expect(result).not.toContain('rel="preload"');
-    expect(result).not.toContain('localhost');
-    expect(result).toContain('fonts.googleapis.com');
-  });
-
-  it('leaves tags referencing missing assets untouched', () => {
-    const missing = html.replaceAll('echo-abc123.js', 'gone.js');
-    const result = inlineWidgetAssets(missing, assetsDir);
-
-    expect(result).toContain('src="http://localhost:4444/gone.js"');
   });
 });
