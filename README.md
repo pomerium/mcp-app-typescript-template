@@ -310,7 +310,13 @@ npm run build:storybook
 npm run inspect
 ```
 
-This opens a browser interface to:
+This opens MCPJam's browser interface. Add your server manually:
+
+1. Click **Add Server**
+2. Set the transport type to **Streamable HTTP**
+3. Set the URL to `http://localhost:8080/mcp`
+
+Once connected, use MCPJam to:
 
 - List available tools
 - Test tool invocations
