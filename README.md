@@ -288,9 +288,9 @@ against the built server (`server/dist/server.js`, `NODE_ENV=production`) and
 the real Echo widget rendered by ext-apps 2's `App`, in a real sandboxed
 iframe, driven by a small test host built on `AppBridge` (from
 `@modelcontextprotocol/ext-apps/app-bridge`) instead of a mocked `App`. It
-runs on Chromium only, against non-default ports (8390/4390/5390) so it never
-collides with a local `npm run dev`, and needs Chromium installed once via
-`npx playwright install --with-deps chromium`.
+runs on Chromium only, against non-default ports (8390/4390/5390/6390) so it
+never collides with a local `npm run dev` or `npm run inspect`, and needs
+Chromium installed once via `npx playwright install --with-deps chromium`.
 
 - `e2e/transport.spec.ts` — plain HTTP: 2026-07-28 `tools/list`/`tools/call`
   with no handshake, `structuredContent` gated on the MCP Apps capability,
@@ -302,6 +302,14 @@ collides with a local `npm run dev`, and needs Chromium installed once via
   would. The spec drives every widget action — `callServerTool`,
   `updateModelContext`, `sendMessage`, `requestDisplayMode`, `openLink`,
   theme — and asserts the widget's own iframe logs no console errors.
+- `e2e/mcpjam.spec.ts` — the same MCPJam Inspector `npm run inspect` opens,
+  driven through its own "Add Server" UI (never `--url`/`--config`
+  auto-connect, which forces MCPJam's hosted sign-in wall instead of landing
+  in the local UI — the same class of regression as #114). A
+  rendering/interaction smoke test on top of `widget.spec.ts`'s precise,
+  scripted-host coverage: it proves the widget renders and round-trips one
+  real action (`callServerTool`) inside MCPJam's actual multi-host emulator,
+  not a spec-compliant stand-in.
 
 The Vitest suites (`npm test`) are unrelated and untouched by this suite.
 

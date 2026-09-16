@@ -7,10 +7,12 @@ import { defineConfig, devices } from '@playwright/test';
 export const SERVER_PORT = 8390;
 export const WIDGET_PORT = 4390;
 export const HOST_PAGE_PORT = 5390;
+export const MCPJAM_PORT = 6390;
 
 export const SERVER_URL = `http://localhost:${SERVER_PORT}`;
 export const WIDGET_BASE_URL = `http://localhost:${WIDGET_PORT}`;
 export const HOST_PAGE_URL = `http://localhost:${HOST_PAGE_PORT}`;
+export const MCPJAM_URL = `http://localhost:${MCPJAM_PORT}`;
 
 /**
  * `npm run test:e2e` runs `pretest:e2e` first (production build of both
@@ -63,6 +65,17 @@ export default defineConfig({
       env: {
         HOST_PAGE_PORT: String(HOST_PAGE_PORT),
       },
+    },
+    {
+      // No `--url`/`--config` auto-connect: that path forces MCPJam's hosted
+      // sign-in wall (confirmed manually), the same class of regression as
+      // #114. `e2e/mcpjam.spec.ts` instead adds the server through the real
+      // "Add Server" UI, exactly like the manual flow in README's
+      // "Local Testing with MCP Inspector" section.
+      command: `node_modules/.bin/inspector --port ${MCPJAM_PORT} --no-open`,
+      url: `${MCPJAM_URL}/api/mcp/servers`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
     },
   ],
 });
