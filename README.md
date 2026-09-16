@@ -312,9 +312,11 @@ npm run inspect
 
 This opens MCPJam's browser interface. Add your server manually:
 
-1. Click **Add Server**
-2. Set the transport type to **Streamable HTTP**
-3. Set the URL to `http://localhost:8080/mcp`
+1. Open the **Servers** tab in the MCPJam sidebar
+2. Select **HTTP** as the transport type
+3. Enter the server URL: `http://localhost:8080/mcp`
+
+See MCPJam's [Connecting Servers](https://docs.mcpjam.com/inspector/connecting-servers) docs for headers, auth, and timeout options.
 
 Once connected, use MCPJam to:
 
