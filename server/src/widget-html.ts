@@ -45,64 +45,6 @@ export function getClientIdentity(
   return identity.name || identity.title ? identity : undefined;
 }
 
-/** Parse a comma-separated client list (e.g. WIDGET_INLINE_CLIENTS) */
-export function parseClientList(
-  raw: string | undefined,
-  fallback: string[]
-): string[] {
-  if (raw === undefined) {
-    return fallback;
-  }
-  return raw
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/**
- * Decide whether a client should receive fully inlined widget HTML instead
- * of HTML that references the widget dev server.
- *
- * Inlined HTML works in every host (no CSP or network reachability
- * requirements), so it is the safe default for unidentified clients. Clients
- * whose name/title matches an entry in `inlineClients` (case-insensitive
- * substring) are also inlined — claude.ai does not load a Vite dev module
- * graph from an external origin. Everyone else gets the dev-server HTML with
- * real HMR.
- */
-export function shouldInlineWidgetHtml(options: {
-  clientInfo: ClientIdentity | undefined;
-  inlineClients: string[];
-  forceInline?: boolean;
-}): boolean {
-  if (options.forceInline) {
-    return true;
-  }
-
-  if (!options.clientInfo?.name && !options.clientInfo?.title) {
-    return true;
-  }
-
-  return clientMatches(options.clientInfo, options.inlineClients);
-}
-
-/** Case-insensitive substring match of a client's name/title against a list */
-export function clientMatches(
-  clientInfo: ClientIdentity | undefined,
-  clients: string[]
-): boolean {
-  const identityText = [clientInfo?.name, clientInfo?.title]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  if (!identityText) {
-    return false;
-  }
-
-  return clients.some((client) => identityText.includes(client));
-}
-
 export interface WidgetOrigin {
   origin: string;
   wsOrigin: string;
@@ -131,41 +73,6 @@ export function resolveWidgetOrigin(
   };
 }
 
-/**
- * Minimal dev HTML that loads the Vite dev module graph via dynamic import()
- * instead of a static <script src> tag. Hosts that render widget HTML in
- * srcdoc iframes (e.g. claude.ai) don't execute static external script tags,
- * but do allow dynamic loading from origins declared in resourceDomains —
- * see the official ext-apps map-server example, which loads CesiumJS this
- * way. Experimental: enable per client via WIDGET_BOOTSTRAP_CLIENTS.
- */
-export function buildDevBootstrapHtml(
-  widgetId: string,
-  widgetOrigin: string
-): string {
-  const moduleUrl = `${widgetOrigin}/virtual:widget-${widgetId}.js`;
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${widgetId}</title>
-</head>
-<body>
-  <div id="${widgetId}-root"></div>
-  <script type="module">
-    import(${JSON.stringify(moduleUrl)}).catch((err) => {
-      const root = document.getElementById(${JSON.stringify(`${widgetId}-root`)});
-      if (root) {
-        root.textContent =
-          'Failed to load dev modules from ${widgetOrigin}: ' + err;
-      }
-    });
-  </script>
-</body>
-</html>`;
-}
-
 const GOOGLE_FONTS_LINK =
   '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap">';
 
@@ -176,7 +83,7 @@ export const GOOGLE_FONTS_DOMAINS = [
 
 /**
  * Inline built JS/CSS assets into widget HTML so it renders in hosts that
- * cannot load external resources (e.g. claude.ai). Local @fontsource fonts
+ * cannot reach the widget origin (INLINE_DEV_MODE). Local @fontsource fonts
  * cannot survive inlining, so Google Fonts are injected as a replacement —
  * remember to allow GOOGLE_FONTS_DOMAINS in the resource CSP.
  */

@@ -7,13 +7,9 @@ import {
   type ServerContext,
 } from '@modelcontextprotocol/server';
 import {
-  buildDevBootstrapHtml,
-  clientMatches,
   getClientIdentity,
   inlineWidgetAssets,
-  parseClientList,
   resolveWidgetOrigin,
-  shouldInlineWidgetHtml,
 } from '../src/widget-html.js';
 
 function contextWithClientInfo(info: unknown): ServerContext {
@@ -49,92 +45,6 @@ describe('getClientIdentity', () => {
     expect(
       getClientIdentity(contextWithClientInfo({ name: 123 }))
     ).toBeUndefined();
-  });
-});
-
-describe('parseClientList', () => {
-  it('falls back when unset', () => {
-    expect(parseClientList(undefined, ['claude'])).toEqual(['claude']);
-  });
-
-  it('splits, trims, and lowercases entries', () => {
-    expect(parseClientList(' Claude , LibreChat ,', [])).toEqual([
-      'claude',
-      'librechat',
-    ]);
-  });
-
-  it('returns an empty list for an explicitly empty value', () => {
-    expect(parseClientList('', ['claude'])).toEqual([]);
-  });
-});
-
-describe('shouldInlineWidgetHtml', () => {
-  const inlineClients = ['claude'];
-
-  it('inlines when forced', () => {
-    expect(
-      shouldInlineWidgetHtml({
-        clientInfo: { name: 'chatgpt' },
-        inlineClients,
-        forceInline: true,
-      })
-    ).toBe(true);
-  });
-
-  it('inlines for unidentified clients', () => {
-    expect(
-      shouldInlineWidgetHtml({ clientInfo: undefined, inlineClients })
-    ).toBe(true);
-  });
-
-  it('inlines for clients matching the list (case-insensitive substring)', () => {
-    expect(
-      shouldInlineWidgetHtml({
-        clientInfo: { name: 'Claude-AI' },
-        inlineClients,
-      })
-    ).toBe(true);
-    expect(
-      shouldInlineWidgetHtml({
-        clientInfo: { title: 'claude.ai web' },
-        inlineClients,
-      })
-    ).toBe(true);
-  });
-
-  it('serves dev-server HTML to identified non-matching clients', () => {
-    expect(
-      shouldInlineWidgetHtml({ clientInfo: { name: 'chatgpt' }, inlineClients })
-    ).toBe(false);
-  });
-});
-
-describe('clientMatches', () => {
-  it('matches on name or title, case-insensitive substring', () => {
-    expect(clientMatches({ name: 'Claude-AI' }, ['claude'])).toBe(true);
-    expect(clientMatches({ title: 'claude.ai web' }, ['claude'])).toBe(true);
-    expect(clientMatches({ name: 'chatgpt' }, ['claude'])).toBe(false);
-  });
-
-  it('never matches unidentified clients or empty lists', () => {
-    expect(clientMatches(undefined, ['claude'])).toBe(false);
-    expect(clientMatches({ name: 'claude-ai' }, [])).toBe(false);
-  });
-});
-
-describe('buildDevBootstrapHtml', () => {
-  it('loads the widget module via dynamic import, not a static script src', () => {
-    const html = buildDevBootstrapHtml(
-      'echo',
-      'https://widgets.example.pom.run'
-    );
-
-    expect(html).toContain(
-      'import("https://widgets.example.pom.run/virtual:widget-echo.js")'
-    );
-    expect(html).toContain('id="echo-root"');
-    expect(html).not.toMatch(/<script[^>]*src=/);
   });
 });
 

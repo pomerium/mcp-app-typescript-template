@@ -10,7 +10,7 @@ A well-architected starter template demonstrating best practices for building MC
 - **Display Modes** - Inline, picture-in-picture, and fullscreen with runtime toggling via `requestDisplayMode()`
 - **App API Demo** - `callServerTool`, `openLink`, `sendMessage`, `updateModelContext` showcased in the Echo widget
 - **Stateless MCP HTTP** - Per-request server factories with no transport sessions or session affinity
-- **Inline Widget Assets** - Self-contained HTML mode for hosts that sandbox iframes (e.g. Claude.ai)
+- **No-Build Dev Loop** - Widgets load live from the Vite dev server with HMR in Claude.ai and ChatGPT; inlined snapshots remain as an opt-in fallback
 - **Container Dimensions** - Responsive widget sizing using host-provided `containerDimensions`
 - **Mock App** - Drop-in `createMockApp()` helper for testing and Storybook without a live MCP connection
 - **[Pino](https://getpino.io/) Logging** - Structured logging with pretty printing in development
@@ -68,9 +68,8 @@ This starts everything you need — no manual build step:
 
 - **MCP Server**: `http://localhost:8080`
 - **Widget dev server** (live modules + HMR): `http://localhost:4444`
-- **Background watch build**: keeps `assets/` fresh so hosts that need self-contained HTML (like Claude.ai) always get an up-to-date inlined widget
 
-The server picks the right widget HTML per request: hosts that can load external assets get live dev modules with hot module replacement, and hosts that can't (Claude.ai, plus any client that doesn't identify itself) automatically get fully inlined HTML rebuilt on every file change. See [How Development Serving Works](#how-development-serving-works).
+There is no build step in development. Every host gets a small HTML shell that loads your widget straight from the Vite dev server, so edits show up via hot module replacement, in Claude.ai and ChatGPT alike. Hosted clients load the widget from inside an https sandbox, so they need `BASE_URL` set to a public https tunnel of port 4444 (see [How Development Serving Works](#how-development-serving-works)).
 
 > **Note:** The MCP server is a backend service. To test it, follow the host connection steps below (ChatGPT example) or use `npm run inspect` for local testing.
 
@@ -80,18 +79,16 @@ You should see output indicating both servers are running successfully:
 ❯ npm run dev
 
 > mcp-app-typescript-template@1.0.0 dev
-> concurrently -n server,widgets,build "npm run dev:server" "npm run dev:widgets" "npm run dev:widgets:build"
+> concurrently -n server,widgets "npm run dev:server" "npm run dev:widgets"
 
 [widgets] > vite
 [server] > tsx watch src/server.ts
-[build] > vite build --watch
 
 [widgets] Found 1 widget(s):
 [widgets]   - echo
 [widgets]
 [widgets]   VITE v8.2.1  ready in 310 ms
 [widgets]   ➜  Local:   http://localhost:4444/
-[build] ✓ 1936 modules transformed.
 [server] [12:45:12] INFO: Starting MCP App Template server
 [server]     port: 8080
 [server]     nodeEnv: "development"
@@ -151,17 +148,19 @@ Look for the **Port Forward Status** section showing:
 
 The tunnel stays active as long as the SSH session is running.
 
-**Claude.ai:** the same tunnel works out of the box — add the connector URL in Claude.ai settings. Claude.ai can't load widget assets from an external dev server, so the template automatically serves it fully inlined widget HTML, rebuilt on every file change (no HMR, but no manual build step either).
+**Claude.ai:** the same tunnel works out of the box — add the connector URL in Claude.ai settings (Settings → Connectors → Add custom connector). Claude.ai, like ChatGPT, loads the widget from an https sandbox, so also set up the widget dev server tunnel described next to get live modules and HMR.
 
 **Other hosts:** Claude Desktop, VS Code, Goose, and other MCP Apps hosts follow the same pattern—add a connector to your `/mcp` endpoint and refresh after changes.
 
-### Optional: Tunnel the Widget Dev Server (HMR through the tunnel)
+### Tunnel the Widget Dev Server (HMR in hosted clients)
 
-Hosts that honor the resource CSP (e.g. ChatGPT in dev mode) can load live widget modules — with hot module replacement — through a second tunnel pointed at the widget dev server:
+Hosted clients (Claude.ai, ChatGPT dev mode) build the widget sandbox's CSP from the origins the server declares, so they can load live widget modules, with hot module replacement, through a second tunnel pointed at the widget dev server:
 
 ```bash
 # Second terminal: tunnel the widget dev server (port 4444)
 ssh -R 0:localhost:4444 pom.run
+# or, without a Pomerium account:
+cloudflared tunnel --url http://localhost:4444
 ```
 
 Then set `BASE_URL` in `.env` to that tunnel's public URL and restart `npm run dev`:
@@ -170,7 +169,7 @@ Then set `BASE_URL` in `.env` to that tunnel's public URL and restart `npm run d
 BASE_URL=https://widgets.first-wallaby-240.pom.run
 ```
 
-Widget HTML, CSP domains (`https://` + `wss://` for HMR), and Vite's allowed hosts are all derived from `BASE_URL` automatically. Without `BASE_URL`, widget assets are served from `http://localhost:4444`, which only works when the host's iframe runs in a browser on your machine.
+Widget HTML, CSP domains (`https://` + `wss://` for HMR), and Vite's allowed hosts are all derived from `BASE_URL` automatically. Without `BASE_URL`, widget assets are served from `http://localhost:4444`, which only works when the host's iframe runs in a browser on your machine and is not itself served over https (the sandbox CSP upgrades insecure requests). If you can't run a tunnel, `npm run dev:inline` serves self-contained snapshots instead.
 
 ### Success! What's Next?
 
@@ -186,11 +185,10 @@ Now that your app is working, you can:
 ### Development
 
 ```bash
-# Start everything (server + widget dev server + background watch build)
-# Serves HMR modules to hosts that support them, auto-inlined HTML to the rest
+# Start everything (MCP server + widget dev server). No build step; HMR in every host.
 npm run dev
 
-# Force inlined assets for every client (rarely needed — npm run dev handles this per client)
+# Fallback: serve inlined snapshots from a watch build (for hosts that can't reach your dev server)
 npm run dev:inline
 
 # Start only MCP server (watch mode)
@@ -580,53 +578,45 @@ This happens automatically via `getUiCapability()` from `@modelcontextprotocol/e
 
 ### How Development Serving Works
 
-`npm run dev` runs three processes side by side:
+`npm run dev` runs two processes side by side:
 
-| Process             | What it does                                                                            |
-| ------------------- | --------------------------------------------------------------------------------------- |
-| `dev:server`        | MCP server on `:8080` — decides **per request** which widget HTML to serve              |
-| `dev:widgets`       | Vite dev server on `:4444` — live source modules + HMR websocket                        |
-| `dev:widgets:build` | `vite build --watch` — keeps `assets/` fresh so an inlined snapshot is always available |
+| Process       | What it does                                                              |
+| ------------- | ------------------------------------------------------------------------- |
+| `dev:server`  | MCP server on `:8080` — serves the widget HTML shell and its CSP metadata |
+| `dev:widgets` | Vite dev server on `:4444` — live source modules + HMR websocket          |
 
-These form **two independent delivery pipelines** from the same source files. The watch build is never involved in the HMR path — it exists solely to keep a self-contained snapshot on standby for hosts that need one.
+Nothing is built. `assets/` is only produced by `npm run build` (production) or `npm run dev:inline` (see below).
 
 #### First render (a host requests the widget)
 
-When a tool call renders the widget, the host issues `resources/read` and the server inspects the client's identity (`clientInfo` in the request `_meta`):
+When a tool call renders the widget, the host issues `resources/read` and the server returns a **~300-byte shell** whose module script points at the Vite dev server: `BASE_URL` if set, else `http://localhost:4444`. The resource's `_meta.ui.csp` declares that origin in `resourceDomains` and `connectDomains` (plus its `ws(s)://` form for the HMR socket). The host builds the sandbox CSP from those declarations, so the browser loads your source files as native ES modules transformed in memory, and Vite's client opens its HMR websocket back to the dev server.
 
-1. **Matches `WIDGET_INLINE_CLIENTS`** (default: `claude`) **or sends no identity** → the server returns a **self-contained snapshot**: the latest `assets/` build with JS/CSS inlined and local images as data URIs. Nothing is fetched at runtime; the iframe has no connection back to your machine.
-2. **Any other identified client** (e.g. ChatGPT dev mode) → the server returns a **~300-byte shell** whose module script points at the Vite dev server (`BASE_URL` if set, else `http://localhost:4444`). The browser loads your source files as native ES modules, transformed in memory — the `assets/` build is not involved at any point. CSP `resourceDomains`/`connectDomains` (including the `ws(s)://` HMR socket) are set to match.
+Hosted clients (Claude.ai, ChatGPT) render the widget from an https sandbox origin, which cannot reach `http://localhost`. For those, `BASE_URL` must be a public https tunnel to port 4444 (a `cloudflared tunnel --url http://localhost:4444` quick tunnel or an `ssh -R 0:localhost:4444 pom.run` session). The Vite config derives `allowedHosts` and the HMR websocket settings from `BASE_URL`, and the server logs a warning when a hosted client asks for the widget while `BASE_URL` is unset. Local hosts (MCP inspectors, desktop apps that render MCP Apps) can use localhost directly.
 
 #### While you develop (save a file)
 
-- **HMR clients** — Vite pushes the changed module over the websocket and React Fast Refresh swaps it in place. Instant, no reload, component state preserved. The watch build also re-runs in the background, but its output isn't used by these clients, and the dev server deliberately ignores `assets/` writes so a finishing build can never trigger a page reload.
-- **Inline clients (Claude.ai)** — the rendered widget is a frozen snapshot; nothing can be pushed to it. The watch build finishes (~1s) and the server re-inlines automatically, so the **next** `resources/read` returns fresh HTML. Invoke the tool again to see your changes — a browser refresh may serve a host-cached copy, so re-invoking is the reliable path.
+Vite pushes the changed module over the websocket and React Fast Refresh swaps it in place: no reload, component state preserved, no tool re-invocation. This is the same in every host that loaded the shell.
 
-> **Experimental:** `WIDGET_BOOTSTRAP_CLIENTS` serves matching clients a shell that loads the dev module graph via dynamic `import()` instead of a static script tag — srcdoc-iframe hosts like Claude.ai don't execute static external script tags but may allow dynamic loading from `resourceDomains` origins. If this proves out, Claude.ai can join the HMR pipeline too. Requires `BASE_URL` set to an https tunnel; off by default.
+#### `npm run dev:inline`: the fallback for hosts that can't reach your dev server
+
+If a host cannot reach the widget origin (no tunnel available, a locked-down network), run `npm run dev:inline` instead. It sets `INLINE_DEV_MODE=true` and runs a `vite build --watch` alongside the server; every client then gets a **self-contained snapshot** of the latest `assets/` build with JS/CSS inlined and local images as data URIs. There is no HMR in this mode: the watch build finishes (~1s), the server re-inlines automatically, and the **next** `resources/read` returns fresh HTML, so re-invoke the tool to see changes.
 
 #### Production is unaffected
 
 None of this machinery runs in production (`NODE_ENV=production`):
 
 - `npm run build` output is unchanged: hashed bundles in `assets/` plus HTML referencing them via `BASE_URL`
-- The server never inlines, never serves dev-server HTML, and ignores `WIDGET_INLINE_CLIENTS` / `WIDGET_BOOTSTRAP_CLIENTS` — all per-client switching is gated on `NODE_ENV=development`
-- Hosts fetch widget assets from `BASE_URL` (CDN or static host) exactly as before
+- The server never inlines and never points at a dev server; hosts fetch widget assets from `BASE_URL` (CDN or static host) exactly as before
 
 ### Inline Widget Assets
 
-Some hosts (e.g. Claude.ai) require fully self-contained HTML — external `<script>` and `<link>` tags won't load inside their sandboxed iframes.
-
-In development, `npm run dev` handles this **automatically and per request**: the server inspects each MCP request's client identity (`clientInfo` in `_meta`) and serves inlined HTML to clients matching `WIDGET_INLINE_CLIENTS` (default: `claude`) and to clients that don't identify themselves. Everyone else gets live dev-server modules with HMR. A background `vite build --watch` keeps the inlined HTML fresh on every file change — you never run a build manually.
+Inlining exists for hosts that cannot load anything from your widget origin. In development it is opt-in via `npm run dev:inline` (see above); it is never used in production, where hosts fetch deployed assets from `BASE_URL`.
 
 Inlined HTML is self-contained:
 
 - **JS/CSS** — inlined as `<script>`/`<style>` blocks
 - **Local images** — inlined as data URIs via Vite's `assetsInlineLimit`
 - **Fonts** — loaded via Google Fonts (the required domains `fonts.googleapis.com` and `fonts.gstatic.com` are automatically added to `resourceDomains` in the CSP)
-
-To force inlining for every client regardless of identity, run `npm run dev:inline` (sets `INLINE_DEV_MODE=true`). To change which clients are inlined, set `WIDGET_INLINE_CLIENTS` (comma-separated, case-insensitive substring match against the client's name/title). The server logs each widget request's `clientInfo` and the chosen mode, so it's easy to see what a host identifies as.
-
-> Inlining is not used in production — once widget assets are deployed to a public URL (`BASE_URL`), hosts fetch them directly via normal URLs.
 
 ### Loading External Resources (Images, APIs, etc.)
 
@@ -756,15 +746,11 @@ LOG_LEVEL=info          # fatal, error, warn, info, debug, trace
 CORS_ORIGIN=*
 
 # Public base URL for widget assets
-# Dev: a tunnel to the widget dev server (enables HMR through hosts that load external assets)
+# Dev: an https tunnel to the widget dev server (needed for hosted clients such as Claude.ai and ChatGPT)
 # Production: your CDN/static host (required)
 # BASE_URL=https://cdn.example.com/assets
 
-# Clients that get fully inlined widget HTML in dev (comma-separated substring
-# match on client name/title; unidentified clients are always inlined)
-# WIDGET_INLINE_CLIENTS=claude
-
-# Force inlined widget HTML for every client (npm run dev:inline sets this)
+# Serve inlined snapshots instead of live dev-server modules (npm run dev:inline sets this)
 # INLINE_DEV_MODE=true
 ```
 
