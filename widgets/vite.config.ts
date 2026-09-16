@@ -14,8 +14,9 @@ export default defineConfig(({ mode, command }) => {
   }
 
   const isProd = process.env.NODE_ENV === 'production';
-  // Dev builds feed the inline HTML fallback (hosts like claude.ai that
-  // can't load external assets), so embed local images as data URIs there.
+  // Dev builds only feed the inlined-HTML fallback (npm run dev:inline, for
+  // hosts that can't reach the widget origin), so embed local images as data
+  // URIs there.
   const inlineAssets = env.INLINE_DEV_MODE === 'true' || !isProd;
   const widgetPort = Number(process.env.WIDGET_PORT || env.WIDGET_PORT || 4444);
 
@@ -61,8 +62,8 @@ export default defineConfig(({ mode, command }) => {
       fs: {
         allow: ['..'],
       },
-      // The background watch build (npm run dev) rewrites ../assets on every
-      // change; don't let those writes trigger full page reloads on top of HMR.
+      // A watch build (npm run dev:inline, or a manual vite build) rewrites
+      // ../assets; don't let those writes trigger full page reloads on top of HMR.
       watch: {
         ignored: [path.resolve(import.meta.dirname, '../assets') + '/**'],
       },
