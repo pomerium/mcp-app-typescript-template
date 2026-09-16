@@ -25,21 +25,15 @@ import {
   type WidgetDescriptor,
 } from './types.js';
 import { clientCanRenderUi } from './ui-capability.js';
-import {
-  buildDevBootstrapHtml,
-  clientMatches,
-  getClientIdentity,
-  GOOGLE_FONTS_DOMAINS,
-  inlineWidgetAssets,
-  parseClientList,
-  resolveWidgetOrigin,
-  shouldInlineWidgetHtml,
-} from './widget-html.js';
-
-config();
+import { getClientIdentity, resolveWidgetOrigin } from './widget-html.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
+
+// The repo-root .env is the single source of dev config (the widget dev
+// server reads it via Vite's envDir too). `npm run dev` runs this process
+// with cwd=server/, so dotenv's default lookup would miss it.
+config({ path: path.resolve(ROOT_DIR, '.env') });
 const ASSETS_DIR = path.resolve(ROOT_DIR, 'assets');
 
 const PORT = Number(process.env.PORT || '8080');
@@ -48,26 +42,7 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const WIDGET_PORT = Number(process.env.WIDGET_PORT || '4444');
 const { BASE_URL = '' } = process.env;
-const INLINE_DEV_MODE = process.env.INLINE_DEV_MODE === 'true';
 const IS_DEV = (process.env.NODE_ENV || 'development') === 'development';
-// Clients that get fully inlined widget HTML in dev (comma-separated,
-// case-insensitive substring match on the client's name/title). claude.ai
-// can't load a Vite dev module graph from an external origin, so it gets the
-// auto-rebuilt inlined bundle instead. Unidentified clients are also inlined.
-const WIDGET_INLINE_CLIENTS = parseClientList(
-  process.env.WIDGET_INLINE_CLIENTS,
-  ['claude']
-);
-// Experimental: clients that get dev-server modules via a dynamic import()
-// bootstrap instead of inlined HTML. Hosts rendering widgets in srcdoc
-// iframes don't execute static <script src> tags but may allow dynamic
-// loading from resourceDomains origins. Takes precedence over
-// WIDGET_INLINE_CLIENTS so e.g. WIDGET_BOOTSTRAP_CLIENTS=claude can trial
-// no-build dev against claude.ai (requires BASE_URL to be an https tunnel).
-const WIDGET_BOOTSTRAP_CLIENTS = parseClientList(
-  process.env.WIDGET_BOOTSTRAP_CLIENTS,
-  []
-);
 
 const logger = pino({
   level: LOG_LEVEL,
@@ -90,103 +65,44 @@ const ECHO_WIDGET: WidgetDescriptor = {
   uri: 'ui://echo',
 };
 
-/** Inlined widget HTML cache — invalidated by the assets watcher on rebuilds */
-const inlinedHtmlCache = new Map<string, string>();
-
-function buildInlinedHtml(widgetId: string): string | null {
-  const htmlPath = path.join(ASSETS_DIR, `${widgetId}.html`);
-  if (!fs.existsSync(htmlPath)) {
-    logger.warn({ htmlPath }, 'Cannot inline: HTML file not found');
-    return null;
-  }
-  const html = fs.readFileSync(htmlPath, 'utf-8');
-  const inlined = inlineWidgetAssets(html, ASSETS_DIR, logger);
-  logger.info(
-    { widgetId, originalLength: html.length, inlinedLength: inlined.length },
-    'Inlined widget HTML'
-  );
-  return inlined;
-}
-
-function getInlinedHtml(widgetId: string): string {
-  const cached = inlinedHtmlCache.get(widgetId);
-  if (cached) {
-    return cached;
-  }
-  const html = buildInlinedHtml(widgetId);
-  if (!html) {
-    throw new Error(
-      `No built assets for widget "${widgetId}" in ${ASSETS_DIR}. ` +
-        'In dev, the watch build from "npm run dev" produces them a few seconds after startup; ' +
-        'otherwise run "npm run build:widgets".'
-    );
-  }
-  inlinedHtmlCache.set(widgetId, html);
-  return html;
-}
-
-/**
- * Watch built assets so inlined HTML is refreshed whenever the widget watch
- * build (`vite build --watch`, part of `npm run dev`) emits new files. The
- * assets directory may not exist yet on first startup — retry until it does.
- */
-function watchAssetsForInlining(widgetIds: string[]) {
-  if (!fs.existsSync(ASSETS_DIR)) {
-    setTimeout(() => watchAssetsForInlining(widgetIds), 2000).unref();
-    return;
-  }
-
-  fs.watch(ASSETS_DIR, (eventType, filename) => {
-    if (filename?.endsWith('.html')) {
-      const widgetId = filename.replace('.html', '');
-      if (widgetIds.includes(widgetId)) {
-        logger.info({ widgetId, eventType }, 'Asset changed, re-inlining');
-        const html = buildInlinedHtml(widgetId);
-        if (html) {
-          inlinedHtmlCache.set(widgetId, html);
-        } else {
-          inlinedHtmlCache.delete(widgetId);
-        }
-      }
-    }
-  });
-  logger.info('Watching assets directory for rebuild changes');
-}
-
 /**
  * Read widget HTML - from Vite dev server in development, from assets in production
  */
 async function readWidgetHtml(widgetId: string): Promise<string> {
-  if (NODE_ENV === 'development' && !INLINE_DEV_MODE) {
+  if (IS_DEV) {
+    // No fallback to built assets here: `npm run dev` does not build, so a
+    // missing dev server is a configuration error worth surfacing.
+    const url = `http://localhost:${WIDGET_PORT}/${widgetId}.html`;
+    logger.debug({ url }, 'Fetching widget HTML from Vite dev server');
+    let response: Response;
     try {
-      const url = `http://localhost:${WIDGET_PORT}/${widgetId}.html`;
-      logger.debug({ url }, 'Fetching widget HTML from Vite dev server');
-      const response = await fetch(url);
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(
-          {
-            status: response.status,
-            statusText: response.statusText,
-            errorText,
-            url,
-          },
-          'Vite dev server returned error'
-        );
-        throw new Error(`Failed to fetch widget HTML: ${response.statusText}`);
-      }
-      const html = await response.text();
-      logger.debug(
-        { url, htmlLength: html.length },
-        'Successfully fetched widget HTML'
-      );
-      return html;
+      response = await fetch(url);
     } catch (err) {
-      logger.warn(
-        { err, widgetId, widgetPort: WIDGET_PORT },
-        'Failed to fetch from Vite dev server, falling back to built assets'
+      throw new Error(
+        `Widget dev server not reachable at ${url}. ` +
+          'Is "npm run dev" running? (It starts the Vite dev server on WIDGET_PORT.)',
+        { cause: err }
       );
     }
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(
+        {
+          status: response.status,
+          statusText: response.statusText,
+          errorText,
+          url,
+        },
+        'Vite dev server returned error'
+      );
+      throw new Error(`Failed to fetch widget HTML: ${response.statusText}`);
+    }
+    const html = await response.text();
+    logger.debug(
+      { url, htmlLength: html.length },
+      'Fetched widget HTML from Vite dev server'
+    );
+    return html;
   }
 
   if (BASE_URL) {
@@ -250,51 +166,34 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
       const serverContext = extra as unknown as ServerContext;
       const clientInfo = getClientIdentity(serverContext);
       try {
-        // Inlined HTML works in every host; the dev-server module graph
-        // (with HMR) only works in hosts that load external origins from the
-        // resource CSP. Unidentified clients get the safe inlined bundle.
-        // Bootstrap mode (experimental) loads dev modules via dynamic
-        // import() for srcdoc-iframe hosts that block static script tags.
-        const useBootstrap =
-          IS_DEV &&
-          !INLINE_DEV_MODE &&
-          clientMatches(clientInfo, WIDGET_BOOTSTRAP_CLIENTS);
-        const useInline =
-          !useBootstrap &&
-          (INLINE_DEV_MODE ||
-            (IS_DEV &&
-              shouldInlineWidgetHtml({
-                clientInfo,
-                inlineClients: WIDGET_INLINE_CLIENTS,
-              })));
-
+        // Dev serves the live Vite module graph (with HMR) to every client.
+        // Hosts render widget HTML inside a sandboxed iframe whose CSP is
+        // built from the resourceDomains/connectDomains declared below, and
+        // both claude.ai and ChatGPT honour them, so the dev server origin
+        // just has to be reachable from the host: a public https tunnel in
+        // BASE_URL for hosted clients, localhost for local ones.
         const resourceDomains: string[] = [];
         const connectDomains: string[] = [];
-        let finalHtml: string;
 
-        if (useBootstrap) {
-          const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
-          finalHtml = buildDevBootstrapHtml(widgetId, widgetOrigin.origin);
-          resourceDomains.push(widgetOrigin.origin);
+        const finalHtml = await readWidgetHtml(widgetId);
+        const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
+        resourceDomains.push(widgetOrigin.origin);
+        if (IS_DEV) {
+          // Vite dev server: allow module fetches plus the HMR websocket
           connectDomains.push(widgetOrigin.origin, widgetOrigin.wsOrigin);
-        } else if (useInline) {
-          finalHtml = getInlinedHtml(widgetId);
-          // Inlining swaps local @fontsource fonts for Google Fonts.
-          // Remove if you self-host fonts.
-          resourceDomains.push(...GOOGLE_FONTS_DOMAINS);
-        } else {
-          finalHtml = await readWidgetHtml(widgetId);
-          const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
-          resourceDomains.push(widgetOrigin.origin);
-          if (IS_DEV) {
-            // Vite dev server: allow module fetches plus the HMR websocket
-            connectDomains.push(widgetOrigin.origin, widgetOrigin.wsOrigin);
-            if (widgetOrigin.isLocalhost) {
-              const altOrigin = `http://127.0.0.1:${WIDGET_PORT}`;
-              resourceDomains.push(altOrigin);
-              connectDomains.push(
-                altOrigin,
-                altOrigin.replace('http://', 'ws://')
+          if (widgetOrigin.isLocalhost) {
+            const altOrigin = `http://127.0.0.1:${WIDGET_PORT}`;
+            resourceDomains.push(altOrigin);
+            connectDomains.push(
+              altOrigin,
+              altOrigin.replace('http://', 'ws://')
+            );
+            if (clientInfo) {
+              // A hosted client (claude.ai, ChatGPT) cannot load
+              // http://localhost from its https sandbox.
+              serverLogger.warn(
+                { clientInfo, widgetOrigin: widgetOrigin.origin },
+                'BASE_URL is not set; hosted clients need an https tunnel to the widget dev server (see .env.example)'
               );
             }
           }
@@ -317,8 +216,6 @@ function createMcpServer(protocolEra: ProtocolEra): McpServer {
             resourceUri,
             widgetId,
             clientInfo,
-            useInline,
-            useBootstrap,
             cspMeta,
           },
           'Widget resource loaded'
@@ -451,19 +348,9 @@ async function main() {
       logLevel: LOG_LEVEL,
       assetsDir: ASSETS_DIR,
       baseUrl: BASE_URL,
-      inlineDevMode: INLINE_DEV_MODE,
     },
     'Starting MCP App Template server'
   );
-
-  const widgetIds = [ECHO_WIDGET.id];
-
-  // Inlined HTML can be requested per-client in dev (and always when
-  // INLINE_DEV_MODE forces it), so keep the inline cache fresh as the
-  // widget watch build emits new assets.
-  if (IS_DEV || INLINE_DEV_MODE) {
-    watchAssetsForInlining(widgetIds);
-  }
 
   const app = express();
 
