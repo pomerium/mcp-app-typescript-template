@@ -78,8 +78,8 @@ export default function Echo({ app }: { app?: AppLike<EchoToolOutput> }) {
 
     return () => {
       isMounted = false;
-      // Only close the internally-created App; an injected `app` prop
-      // (tests/Storybook) is owned by the caller and outlives this effect.
+      // Close only what this component created. An injected `app` prop
+      // (tests/Storybook) is owned and torn down by the caller.
       defaultApp.close();
     };
   }, [activeApp, defaultApp]);
