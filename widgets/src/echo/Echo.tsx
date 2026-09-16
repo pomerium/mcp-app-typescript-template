@@ -78,8 +78,11 @@ export default function Echo({ app }: { app?: AppLike<EchoToolOutput> }) {
 
     return () => {
       isMounted = false;
+      // Only close the internally-created App; an injected `app` prop
+      // (tests/Storybook) is owned by the caller and outlives this effect.
+      defaultApp.close();
     };
-  }, [activeApp]);
+  }, [activeApp, defaultApp]);
 
   const toggleTheme = () => {
     const currentTheme = localTheme ?? hostContext?.theme ?? 'light';

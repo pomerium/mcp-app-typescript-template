@@ -103,6 +103,7 @@ Create `widgets/src/my-widget/MyWidget.tsx`. Follow the Echo component pattern i
 - Accept an optional `app?: AppLike<MyToolOutput>` prop (enables Storybook / test injection via `createMockApp()`)
 - Fall back to `new App(...)` when no prop is provided
 - Register `ontoolresult` and `onhostcontextchanged` handlers **before** calling `activeApp.connect()` inside a `useEffect`
+- In that `useEffect`'s cleanup, close the internally-created App (e.g. `defaultApp.close()`) — not just an `isMounted` flag — so React StrictMode's dev double-invoke doesn't leave a zombie `PostMessageTransport` listener; never close an injected `app` prop, since tests/Storybook own that instance
 - Apply safe area insets and container dimensions from `hostContext` for responsive sizing
 
 Key imports:
