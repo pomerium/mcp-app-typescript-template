@@ -1,12 +1,9 @@
 import { createServer } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { config } from 'dotenv';
+import { Effect, Either, Schema } from 'effect';
 import pkg from '../package.json' with { type: 'json' };
-import pino from 'pino';
-import pinoHttp from 'pino-http';
 import {
   createMcpHandler,
   McpServer,
@@ -19,44 +16,15 @@ import {
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
 import {
+  EchoMessageSchema,
   EchoToolInputSchema,
   type EchoToolOutput,
   type WidgetDescriptor,
 } from './types.js';
 import { clientCanRenderUi } from './ui-capability.js';
 import { getClientIdentity, resolveWidgetOrigin } from './widget-html.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, '..', '..');
-
-// The repo-root .env is the single source of dev config (the widget dev
-// server reads it via Vite's envDir too). `npm run dev` runs this process
-// with cwd=server/, so dotenv's default lookup would miss it.
-config({ path: path.resolve(ROOT_DIR, '.env') });
-const ASSETS_DIR = path.resolve(ROOT_DIR, 'assets');
-
-const PORT = Number(process.env.PORT || '8080');
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const WIDGET_PORT = Number(process.env.WIDGET_PORT || '4444');
-const { BASE_URL = '' } = process.env;
-const IS_DEV = (process.env.NODE_ENV || 'development') === 'development';
-
-const logger = pino({
-  level: LOG_LEVEL,
-  transport:
-    NODE_ENV === 'development'
-      ? {
-          target: 'pino-pretty',
-          options: {
-            colorize: true,
-            translateTime: 'HH:MM:ss',
-            ignore: 'pid,hostname',
-          },
-        }
-      : undefined,
-});
+import { appConfig, ASSETS_DIR, IS_DEV } from './config.js';
+import { logError, logFatal, logInfo, runtime } from './logger.js';
 
 const ECHO_WIDGET: WidgetDescriptor = {
   id: 'echo',
@@ -67,68 +35,87 @@ const ECHO_WIDGET: WidgetDescriptor = {
 /**
  * Read widget HTML - from Vite dev server in development, from assets in production
  */
-async function readWidgetHtml(widgetId: string): Promise<string> {
+function readWidgetHtml(widgetId: string): Effect.Effect<string, Error> {
   if (IS_DEV) {
     // No fallback to built assets here: `npm run dev` does not build, so a
     // missing dev server is a configuration error worth surfacing.
-    const url = `http://localhost:${WIDGET_PORT}/${widgetId}.html`;
-    logger.debug({ url }, 'Fetching widget HTML from Vite dev server');
-    let response: Response;
-    try {
-      response = await fetch(url);
-    } catch (err) {
-      throw new Error(
-        `Widget dev server not reachable at ${url}. ` +
-          'Is "npm run dev" running? (It starts the Vite dev server on WIDGET_PORT.)',
-        { cause: err }
+    const url = `http://localhost:${appConfig.widgetPort}/${widgetId}.html`;
+    return Effect.gen(function* () {
+      yield* Effect.logDebug('Fetching widget HTML from Vite dev server').pipe(
+        Effect.annotateLogs({ url })
+      );
+      const response = yield* Effect.tryPromise({
+        try: () => fetch(url),
+        catch: (cause) =>
+          new Error(
+            `Widget dev server not reachable at ${url}. ` +
+              'Is "npm run dev" running? (It starts the Vite dev server on WIDGET_PORT.)',
+            { cause }
+          ),
+      });
+      if (!response.ok) {
+        const errorText = yield* Effect.promise(() => response.text());
+        yield* Effect.logError('Vite dev server returned error').pipe(
+          Effect.annotateLogs({
+            status: response.status,
+            statusText: response.statusText,
+            errorText,
+            url,
+          })
+        );
+        return yield* Effect.fail(
+          new Error(`Failed to fetch widget HTML: ${response.statusText}`)
+        );
+      }
+      const html = yield* Effect.promise(() => response.text());
+      yield* Effect.logDebug('Fetched widget HTML from Vite dev server').pipe(
+        Effect.annotateLogs({ url, htmlLength: html.length })
+      );
+      return html;
+    });
+  }
+
+  if (appConfig.baseUrl) {
+    const url = new URL(`${widgetId}.html`, appConfig.baseUrl).href;
+    return Effect.gen(function* () {
+      yield* Effect.logDebug('Fetching widget HTML from BASE_URL').pipe(
+        Effect.annotateLogs({ url })
+      );
+      const response = yield* Effect.tryPromise({
+        try: () => fetch(url),
+        catch: (cause) =>
+          new Error(`Failed to fetch widget HTML from ${url}`, { cause }),
+      });
+      if (!response.ok) {
+        return yield* Effect.fail(
+          new Error(
+            `Failed to fetch widget HTML from ${url}: ${response.statusText}`
+          )
+        );
+      }
+      return yield* Effect.promise(() => response.text());
+    });
+  }
+
+  return Effect.gen(function* () {
+    if (!fs.existsSync(ASSETS_DIR)) {
+      return yield* Effect.fail(
+        new Error(
+          `Widget assets not found. Expected directory ${ASSETS_DIR}. Run "npm run build:widgets" before starting the server.`
+        )
       );
     }
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(
-        {
-          status: response.status,
-          statusText: response.statusText,
-          errorText,
-          url,
-        },
-        'Vite dev server returned error'
-      );
-      throw new Error(`Failed to fetch widget HTML: ${response.statusText}`);
-    }
-    const html = await response.text();
-    logger.debug(
-      { url, htmlLength: html.length },
-      'Fetched widget HTML from Vite dev server'
-    );
-    return html;
-  }
 
-  if (BASE_URL) {
-    const url = new URL(`${widgetId}.html`, BASE_URL).href;
-    logger.debug({ url }, 'Fetching widget HTML from BASE_URL');
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch widget HTML from ${url}: ${response.statusText}`
+    const htmlPath = path.join(ASSETS_DIR, `${widgetId}.html`);
+
+    if (!fs.existsSync(htmlPath)) {
+      return yield* Effect.fail(
+        new Error(`Widget HTML not found: ${htmlPath}`)
       );
     }
-    return response.text();
-  }
 
-  if (!fs.existsSync(ASSETS_DIR)) {
-    throw new Error(
-      `Widget assets not found. Expected directory ${ASSETS_DIR}. Run "npm run build:widgets" before starting the server.`
-    );
-  }
-
-  const htmlPath = path.join(ASSETS_DIR, `${widgetId}.html`);
-
-  if (!fs.existsSync(htmlPath)) {
-    throw new Error(`Widget HTML not found: ${htmlPath}`);
-  }
-
-  return fs.readFileSync(htmlPath, 'utf-8');
+    return fs.readFileSync(htmlPath, 'utf-8');
+  });
 }
 
 /**
@@ -143,8 +130,6 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
     version: pkg.version,
   });
 
-  const serverLogger = logger.child({ protocolEra });
-
   const resourceUri = ECHO_WIDGET.uri;
 
   registerAppResource(
@@ -152,11 +137,15 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
     resourceUri,
     resourceUri,
     { mimeType: RESOURCE_MIME_TYPE },
-    async (_uri, ctx) => {
-      serverLogger.debug({ resourceUri }, 'Resource callback called');
+    (_uri, ctx) => {
       const widgetId = resourceUri.replace('ui://', '');
       const clientInfo = getClientIdentity(ctx);
-      try {
+
+      const program = Effect.gen(function* () {
+        yield* Effect.logDebug('Resource callback called').pipe(
+          Effect.annotateLogs({ resourceUri })
+        );
+
         // Dev serves the live Vite module graph (with HMR) to every client.
         // Hosts render widget HTML inside a sandboxed iframe whose CSP is
         // built from the resourceDomains/connectDomains declared below, and
@@ -166,14 +155,17 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
         const resourceDomains: string[] = [];
         const connectDomains: string[] = [];
 
-        const finalHtml = await readWidgetHtml(widgetId);
-        const widgetOrigin = resolveWidgetOrigin(BASE_URL, WIDGET_PORT);
+        const finalHtml = yield* readWidgetHtml(widgetId);
+        const widgetOrigin = resolveWidgetOrigin(
+          appConfig.baseUrl,
+          appConfig.widgetPort
+        );
         resourceDomains.push(widgetOrigin.origin);
         if (IS_DEV) {
           // Vite dev server: allow module fetches plus the HMR websocket
           connectDomains.push(widgetOrigin.origin, widgetOrigin.wsOrigin);
           if (widgetOrigin.isLocalhost) {
-            const altOrigin = `http://127.0.0.1:${WIDGET_PORT}`;
+            const altOrigin = `http://127.0.0.1:${appConfig.widgetPort}`;
             resourceDomains.push(altOrigin);
             connectDomains.push(
               altOrigin,
@@ -182,9 +174,13 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
             if (clientInfo) {
               // A hosted client (claude.ai, ChatGPT) cannot load
               // http://localhost from its https sandbox.
-              serverLogger.warn(
-                { clientInfo, widgetOrigin: widgetOrigin.origin },
+              yield* Effect.logWarning(
                 'BASE_URL is not set; hosted clients need an https tunnel to the widget dev server (see .env.example)'
+              ).pipe(
+                Effect.annotateLogs({
+                  clientInfo,
+                  widgetOrigin: widgetOrigin.origin,
+                })
               );
             }
           }
@@ -202,14 +198,13 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
               }
             : undefined;
 
-        serverLogger.info(
-          {
+        yield* Effect.logInfo('Widget resource loaded').pipe(
+          Effect.annotateLogs({
             resourceUri,
             widgetId,
             clientInfo,
             cspMeta,
-          },
-          'Widget resource loaded'
+          })
         );
 
         return {
@@ -222,13 +217,16 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
             },
           ],
         };
-      } catch (err) {
-        serverLogger.error(
-          { err, resourceUri, widgetId },
-          'Failed to load widget'
-        );
-        throw err;
-      }
+      }).pipe(
+        Effect.annotateLogs({ protocolEra }),
+        Effect.tapError((err) =>
+          Effect.logError('Failed to load widget').pipe(
+            Effect.annotateLogs({ err, resourceUri, widgetId })
+          )
+        )
+      );
+
+      return runtime.runPromise(program);
     }
   );
 
@@ -250,44 +248,49 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
         },
       },
     },
-    async (args, ctx) => {
+    (args, ctx) => {
       const canRenderUiByCapability = clientCanRenderUi(ctx);
 
-      serverLogger.info(
-        { toolName: 'echo', args, canRenderUiByCapability },
-        'Tool invoked'
-      );
+      // The SDK already validates `args` against `inputSchema` before this
+      // handler runs (see `validateToolInput`), so this decode only ever
+      // sees valid input in practice; it's kept as the handler's own
+      // boundary check rather than trusting that upstream behavior.
+      const program = Effect.gen(function* () {
+        yield* Effect.logInfo('Tool invoked').pipe(
+          Effect.annotateLogs({
+            toolName: 'echo',
+            args,
+            canRenderUiByCapability,
+          })
+        );
 
-      try {
-        const result = EchoToolInputSchema.safeParse(args);
+        const result = Schema.decodeUnknownEither(EchoMessageSchema)(args);
 
-        if (!result.success) {
-          serverLogger.error(
-            { err: result.error, toolName: 'echo' },
-            'Validation failed'
+        if (Either.isLeft(result)) {
+          yield* Effect.logError('Validation failed').pipe(
+            Effect.annotateLogs({ err: result.left, toolName: 'echo' })
           );
           return {
             content: [
               {
-                type: 'text',
-                text: `Error: ${result.error.issues.map((e) => e.message).join(', ')}`,
+                type: 'text' as const,
+                text: `Error: ${result.left.message}`,
               },
             ],
             isError: true,
           };
         }
 
-        const { message } = result.data;
+        const { message } = result.right;
 
         if (!canRenderUiByCapability) {
-          serverLogger.info(
-            { toolName: 'echo' },
+          yield* Effect.logInfo(
             'Client cannot render UI; returning text-only result'
-          );
+          ).pipe(Effect.annotateLogs({ toolName: 'echo' }));
           return {
             content: [
               {
-                type: 'text',
+                type: 'text' as const,
                 text: `Echoing: "${message}"`,
               },
             ],
@@ -299,21 +302,22 @@ export function createMcpServer(protocolEra: ProtocolEra): McpServer {
           timestamp: new Date().toISOString(),
         } satisfies EchoToolOutput;
 
-        serverLogger.info({ output }, 'Tool execution successful');
+        yield* Effect.logInfo('Tool execution successful').pipe(
+          Effect.annotateLogs({ output })
+        );
 
         return {
           content: [
             {
-              type: 'text',
+              type: 'text' as const,
               text: `Echoing: "${message}"`,
             },
           ],
           structuredContent: output,
         };
-      } catch (err) {
-        serverLogger.error({ err, toolName: 'echo' }, 'Tool execution failed');
-        throw err;
-      }
+      }).pipe(Effect.annotateLogs({ protocolEra }));
+
+      return runtime.runPromise(program);
     }
   );
 
@@ -331,7 +335,7 @@ export function createHandler() {
   return createMcpHandler(({ era }) => createMcpServer(era), {
     legacy: 'stateless',
     onerror: (err) => {
-      logger.error({ err }, 'Error handling MCP request');
+      logError('Error handling MCP request', { err });
     },
   });
 }
@@ -340,28 +344,36 @@ export function createHandler() {
  * Main server setup
  */
 async function main() {
-  if (NODE_ENV === 'production' && !BASE_URL) {
-    logger.fatal('BASE_URL must be set in production');
+  if (appConfig.nodeEnv === 'production' && !appConfig.baseUrl) {
+    logFatal('BASE_URL must be set in production');
     process.exit(1);
   }
 
-  logger.info(
-    {
-      port: PORT,
-      nodeEnv: NODE_ENV,
-      logLevel: LOG_LEVEL,
-      assetsDir: ASSETS_DIR,
-      baseUrl: BASE_URL,
-    },
-    'Starting MCP App Template server'
-  );
+  logInfo('Starting MCP App Template server', {
+    port: appConfig.port,
+    nodeEnv: appConfig.nodeEnv,
+    logLevel: appConfig.logLevel,
+    assetsDir: ASSETS_DIR,
+    baseUrl: appConfig.baseUrl,
+  });
 
   const app = express();
 
-  app.use(pinoHttp({ logger }));
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      logInfo('Request handled', {
+        method: req.method,
+        url: req.originalUrl,
+        status: res.statusCode,
+        durationMs: Date.now() - start,
+      });
+    });
+    next();
+  });
 
   app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', CORS_ORIGIN);
+    res.header('Access-Control-Allow-Origin', appConfig.corsOrigin);
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.header(
       'Access-Control-Allow-Headers',
@@ -387,15 +399,13 @@ async function main() {
   const handler = createHandler();
   const nodeHandler = toNodeHandler(handler, {
     onerror: (err) => {
-      logger.error({ err }, 'Error adapting MCP request for Node');
+      logError('Error adapting MCP request for Node', { err });
     },
   });
 
   app.all('/mcp', (req, res) => {
-    logger.info({ method: req.method, ip: req.ip }, 'MCP request');
-
     nodeHandler(req, res, req.body).catch((err: unknown) => {
-      logger.error({ err }, 'Unhandled error serving MCP request');
+      logError('Unhandled error serving MCP request', { err });
       if (!res.headersSent) {
         res.status(500).json({
           jsonrpc: '2.0',
@@ -414,10 +424,10 @@ async function main() {
   const httpServer = createServer(app);
 
   const shutdown = async () => {
-    logger.info('Shutting down server...');
+    logInfo('Shutting down server...');
 
     httpServer.close(() => {
-      logger.info('HTTP server closed');
+      logInfo('HTTP server closed');
     });
 
     await handler.close();
@@ -428,15 +438,12 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  httpServer.listen(PORT, () => {
-    logger.info(
-      {
-        port: PORT,
-        mcpEndpoint: `http://localhost:${PORT}/mcp`,
-        healthEndpoint: `http://localhost:${PORT}/health`,
-      },
-      'Server started successfully'
-    );
+  httpServer.listen(appConfig.port, () => {
+    logInfo('Server started successfully', {
+      port: appConfig.port,
+      mcpEndpoint: `http://localhost:${appConfig.port}/mcp`,
+      healthEndpoint: `http://localhost:${appConfig.port}/health`,
+    });
   });
 }
 
@@ -445,7 +452,7 @@ async function main() {
 // binding a port.
 if (import.meta.main) {
   main().catch((err) => {
-    logger.fatal({ err }, 'Failed to start server');
+    logFatal('Failed to start server', { err });
     process.exit(1);
   });
 }

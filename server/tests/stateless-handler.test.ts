@@ -6,7 +6,10 @@ import {
   McpServer,
   PROTOCOL_VERSION_META_KEY,
 } from '@modelcontextprotocol/server';
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { toMcpSchema } from '../src/effect-mcp-schema.js';
+
+const messageSchema = toMcpSchema(Schema.Struct({ message: Schema.String }));
 
 const modernMeta = {
   [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
@@ -39,7 +42,7 @@ describe('stateless MCP handler', () => {
       });
       server.registerTool(
         'echo',
-        { inputSchema: z.object({ message: z.string() }) },
+        { inputSchema: messageSchema },
         async ({ message }) => ({
           content: [{ type: 'text', text: message }],
         })
@@ -98,7 +101,7 @@ describe('stateless MCP handler', () => {
         });
         server.registerTool(
           'echo',
-          { inputSchema: z.object({ message: z.string() }) },
+          { inputSchema: messageSchema },
           async ({ message }) => ({
             content: [{ type: 'text', text: message }],
           })

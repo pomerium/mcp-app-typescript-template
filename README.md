@@ -1,11 +1,11 @@
 # MCP Apps Template
 
-A well-architected starter template demonstrating best practices for building MCP Apps using the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) with [React](https://react.dev/) widgets. It leverages TypeScript, Tailwind CSS v4, Pino logging, Storybook, and Vitest for a robust development experience.
+A well-architected starter template demonstrating best practices for building MCP Apps using the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) with [React](https://react.dev/) widgets. It leverages TypeScript, Tailwind CSS v4, [Effect](https://effect.website/)-based schema validation/config/logging, Storybook, and Vitest for a robust development experience.
 
 ## Features
 
 - **MCP Server** - Node.js server with `McpServer` and MCP Apps helpers
-- **Echo Tool** - Example tool with [Zod](https://zod.dev/) validation and UI binding
+- **Echo Tool** - Example tool with [Effect Schema](https://effect.website/docs/schema/introduction/) validation and UI binding
 - **React Widgets** - Interactive Echo component with MCP Apps `App` API demo
 - **Display Modes** - Inline, picture-in-picture, and fullscreen with runtime toggling via `requestDisplayMode()`
 - **App API Demo** - `callServerTool`, `openLink`, `sendMessage`, `updateModelContext` showcased in the Echo widget
@@ -13,7 +13,7 @@ A well-architected starter template demonstrating best practices for building MC
 - **No-Build Dev Loop** - Widgets load live from the Vite dev server with HMR in Claude.ai and ChatGPT
 - **Container Dimensions** - Responsive widget sizing using host-provided `containerDimensions`
 - **Mock App** - Drop-in `createMockApp()` helper for testing and Storybook without a live MCP connection
-- **[Pino](https://getpino.io/) Logging** - Structured logging with pretty printing in development
+- **[Effect](https://effect.website/) Logging** - Structured logging with pretty printing in development, JSON in production
 - **TypeScript** - Strict mode with ES2023 target
 - **[Tailwind CSS v4](https://tailwindcss.com/)** - Modern styling with dark mode support
 - **[Storybook](https://storybook.js.org/)** - Component development with a11y addon
@@ -419,11 +419,19 @@ mcp-app-template/
 
 ```typescript
 // server/src/types.ts
-import { z } from 'zod';
+import { Schema } from 'effect';
+import { toMcpSchema } from './effect-mcp-schema.js';
 
-export const MyToolInputSchema = z.object({
-  input: z.string().min(1, 'Input is required'),
+export const MyToolMessageSchema = Schema.Struct({
+  input: Schema.String.pipe(
+    Schema.minLength(1, { message: () => 'Input is required' })
+  ),
 });
+
+// Bridges the Effect Schema to the SDK's `inputSchema` contract (Standard
+// Schema validation + JSON Schema export) — see effect-mcp-schema.ts for why
+// this bridge exists.
+export const MyToolInputSchema = toMcpSchema(MyToolMessageSchema);
 ```
 
 ### 2. Register Tool (with UI)
@@ -441,8 +449,8 @@ registerAppTool(
     },
   },
   async (args) => {
-    // args is already typed and validated against `inputSchema` (a Zod
-    // object) before this callback runs.
+    // args is already typed and validated against `inputSchema` (a
+    // Standard-Schema-wrapped Effect Schema) before this callback runs.
     return {
       content: [{ type: 'text', text: 'Result' }],
       structuredContent: { result: args.input },
@@ -902,7 +910,7 @@ npm run test:coverage
 
 **Server Tests** (`server/tests/`):
 
-- Input validation with Zod
+- Input validation with Effect Schema
 - Tool response structure
 - Stateless transport behavior
 - Error handling
@@ -1010,7 +1018,7 @@ curl http://localhost:8080/health
 **Monitoring:**
 
 - Monitor `/health` endpoint for server status
-- Set up logging aggregation (Pino outputs JSON in production)
+- Set up logging aggregation (the server outputs structured JSON in production via Effect's `Logger.json`)
 - Configure alerts for errors and performance issues
 
 ## Troubleshooting
@@ -1047,7 +1055,7 @@ If you're porting a fork or older code sample onto this template's `@modelcontex
 
 - Remove `@modelcontextprotocol/sdk` (v1) entirely — it's not a dependency anywhere in this template; ext-apps 2.x sits on the split v2 packages instead
 - Import wire types (e.g. `TextContent`, `CallToolResult`) from `@modelcontextprotocol/client` in widget code, or from `@modelcontextprotocol/server` in server code — not from `@modelcontextprotocol/sdk/types.js`
-- Pass a Zod object schema directly as `inputSchema` (e.g. `inputSchema: MyToolInputSchema`), not the deprecated raw shape (`MyToolInputSchema.shape`); Zod must be `^4.2.0` or newer
+- Pass a schema object directly as `inputSchema` (e.g. `inputSchema: MyToolInputSchema`), not a deprecated raw shape (`MyToolInputSchema.shape`). The SDK validates `inputSchema`/`outputSchema` through the [Standard Schema](https://standardschema.dev/) interface, so Zod (`^4.2.0`+, which implements `~standard.jsonSchema` directly), Valibot, ArkType, or this template's own Effect Schema all work. Zod is a special case for JSON Schema export (`tools/list`); any other Standard Schema library — Effect Schema included — needs a small bridge like `toMcpSchema` in `server/src/effect-mcp-schema.ts`, because the SDK's `tools/list` conversion only recognizes `vendor: "zod"` or an explicit `~standard.jsonSchema` implementation, and most non-Zod libraries (Effect included) don't set the latter
 - Tool and resource callbacks receive a v2 `ServerContext` as `ctx` directly (`ctx.mcpReq.id`, `ctx.mcpReq.signal`) — there's no `sessionId` and no need to cast `ctx`/`extra` with `as unknown as ServerContext`
 
 See the upstream [migrate-to-v2 guide](https://apps.extensions.modelcontextprotocol.io/api/documents/migrate-to-v2.html) for the full list of breaking changes.
@@ -1098,11 +1106,16 @@ The HTTP endpoint uses `createMcpHandler` from the v2 TypeScript SDK. The handle
 - Great dark mode support out of the box
 - Smaller bundle sizes with new engine
 
-### Why Pino for Logging?
+### Why Effect for Schema, Config, and Logging?
 
-- Fast, structured logging for production
-- Pretty printing in development
-- Easy integration with monitoring tools
+The server uses [Effect](https://effect.website/) (`Schema`, `Config`, `Logger`) instead of Zod/dotenv/Pino because:
+
+- One dependency covers tool input validation, environment configuration, and structured logging with a consistent, composable API
+- `Effect.Config` resolves env vars once at import time with typed defaults, the same way the old `process.env.X || 'default'` pattern did, but with validation instead of silent `NaN`/string coercion
+- `Logger.pretty` gives colorized dev output and `Logger.json` gives structured JSON in production, filtered by `Logger.minimumLogLevel` from `LOG_LEVEL` — the same dev/prod split Pino's `pino-pretty` transport provided
+- The `echo` tool's resource callback and handler are expressed as `Effect.gen` workflows, run at the MCP SDK's Promise-based callback boundary via `runtime.runPromise`
+
+One caveat worth knowing if you add your own Effect Schema-based tool: `Schema.standardSchemaV1` only implements Standard Schema's `validate` half, not its `jsonSchema` half, so a bare Effect schema can't be passed as `inputSchema` directly — it needs the `toMcpSchema` bridge in `server/src/effect-mcp-schema.ts`, which generates the JSON Schema via `JSONSchema.make` and wires it to the SDK's `fromJsonSchema` helper.
 
 ### Why Two TypeScript Compilers?
 
@@ -1135,4 +1148,4 @@ MIT
 - [React 19](https://react.dev/)
 - [Tailwind CSS v4](https://tailwindcss.com/)
 - [Vite](https://vitejs.dev/)
-- [Pino](https://getpino.io/)
+- [Effect](https://effect.website/)
