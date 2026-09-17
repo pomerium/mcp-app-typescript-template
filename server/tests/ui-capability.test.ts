@@ -11,8 +11,11 @@ import {
   EXTENSION_ID,
   RESOURCE_MIME_TYPE,
 } from '@modelcontextprotocol/ext-apps/server';
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { clientCanRenderUi } from '../src/ui-capability.js';
+import { toMcpSchema } from '../src/effect-mcp-schema.js';
+
+const messageSchema = toMcpSchema(Schema.Struct({ message: Schema.String }));
 
 const modernMeta = {
   [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
@@ -65,7 +68,7 @@ function createCapabilityAwareHandler() {
       });
       server.registerTool(
         'echo',
-        { inputSchema: z.object({ message: z.string() }) },
+        { inputSchema: messageSchema },
         async ({ message }, ctx) => {
           if (!clientCanRenderUi(ctx as ServerContext)) {
             return {

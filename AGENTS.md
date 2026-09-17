@@ -41,7 +41,9 @@ Dev-serving mechanics (`BASE_URL`, tunnels, HMR over websockets) are documented 
   ```
 
 - **Widget build** — Vite scans `widgets/src/widgets/*.{tsx,jsx}`; the filename is the widget id (`echo.tsx` → `ui://echo`); each entry must include its own mounting code. For the full walkthrough, use the `add-widget` / `create-mcp-tool` skills or README's "Adding New Tools" / "Widget Development" sections.
-- **Zod validation** — schemas live in `server/src/types.ts` and are passed directly as `inputSchema` (the Zod object itself, e.g. `inputSchema: MyToolInputSchema`, never `.shape`); handlers receive typed args plus a `ServerContext` `ctx`; types are inferred via `z.infer`.
+- **Effect Schema validation** — tool schemas live in `server/src/types.ts` as Effect `Schema` definitions, bridged to the SDK's `inputSchema` contract via `toMcpSchema()` (`server/src/effect-mcp-schema.ts`) and passed directly (e.g. `inputSchema: MyToolInputSchema`); handlers receive typed args plus a `ServerContext` `ctx`. **Why the bridge exists**: the SDK validates `inputSchema` through the [Standard Schema](https://standardschema.dev/) interface, but `Schema.standardSchemaV1` only implements its `validate` half, not `~standard.jsonSchema` — so a bare Effect schema throws when passed as `inputSchema`. `toMcpSchema()` generates the JSON Schema via `JSONSchema.make` and wires it to the SDK's `fromJsonSchema()` helper.
+- **Effect Config** — env vars are resolved once at import time in `server/src/config.ts` via `Effect.runSync(Config.all({...}))`, with the repo-root `.env` loaded (via `dotenv`) before that resolution runs; add new env vars there, not as raw `process.env` reads elsewhere.
+- **Effect logging** — `server/src/logger.ts` exports synchronous `logInfo`/`logError`/etc. helpers (message first, then an optional fields object) for use outside Effect programs (Express middleware, `main()`), and a shared `runtime` (`ManagedRuntime`) for running the resource/tool `Effect.gen` workflows in `server.ts` via `runtime.runPromise()` at the MCP SDK's Promise-based callback boundary. Dev gets `Logger.pretty` (colorized), production gets `Logger.json`, both filtered by `LOG_LEVEL` via `Logger.minimumLogLevel`.
 - **UI capability negotiation** — tools always carry MCP Apps metadata plus a text fallback; `getUiCapability()` / `clientCanRenderUi()` gate `structuredContent` for hosts that can't render UI, automatically.
 
 ## File Organization
@@ -49,7 +51,10 @@ Dev-serving mechanics (`BASE_URL`, tunnels, HMR over websockets) are documented 
 ### Server
 
 - `server/src/server.ts` - exports `createMcpServer()` / `createHandler()`; only calls `main()` and listens on a port when run directly (`import.meta.main`), so tests can drive the handler without binding one
-- `server/src/types.ts` - Zod schemas and TypeScript interfaces
+- `server/src/types.ts` - Effect Schema definitions and TypeScript interfaces
+- `server/src/effect-mcp-schema.ts` - `toMcpSchema()`, the Effect-Schema-to-MCP-`inputSchema` bridge
+- `server/src/config.ts` - Effect Config-based env var resolution (`appConfig`, `IS_DEV`, `ASSETS_DIR`)
+- `server/src/logger.ts` - Effect Logger setup and the `logInfo`/`logError`/etc. facade + shared `runtime`
 - `server/tests/*.test.ts` - Vitest specs; `server/tests/server.test.ts` drives the real handler end-to-end via `createHandler().fetch(...)`
 
 ### Widgets

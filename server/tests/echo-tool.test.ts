@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { EchoToolInputSchema } from '../src/types.js';
+import { Schema } from 'effect';
+import { EchoMessageSchema } from '../src/types.js';
+
+const decode = Schema.decodeUnknownSync(EchoMessageSchema);
 
 describe('Echo Tool', () => {
   describe('Input validation', () => {
     it('should accept valid message', () => {
       const input = { message: 'Hello, World!' };
-      const result = EchoToolInputSchema.parse(input);
+      const result = decode(input);
 
       expect(result).toEqual(input);
       expect(result.message).toBe('Hello, World!');
@@ -14,26 +17,26 @@ describe('Echo Tool', () => {
     it('should reject empty message', () => {
       const input = { message: '' };
 
-      expect(() => EchoToolInputSchema.parse(input)).toThrow();
+      expect(() => decode(input)).toThrow();
     });
 
     it('should reject missing message', () => {
       const input = {};
 
-      expect(() => EchoToolInputSchema.parse(input)).toThrow();
+      expect(() => decode(input)).toThrow();
     });
 
     it('should reject non-string message', () => {
       const input = { message: 123 };
 
-      expect(() => EchoToolInputSchema.parse(input)).toThrow();
+      expect(() => decode(input)).toThrow();
     });
   });
 
   describe('Tool output structure', () => {
     it('should match expected output format', () => {
       const input = { message: 'Test message' };
-      const validated = EchoToolInputSchema.parse(input);
+      const validated = decode(input);
 
       const output = {
         echoedMessage: validated.message,
